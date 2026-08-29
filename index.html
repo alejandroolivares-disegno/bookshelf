@@ -858,9 +858,11 @@
   const IS_MOBILE_DEVICE = Math.min(window.innerWidth, window.innerHeight) <= 600
     || window.matchMedia('(pointer: coarse)').matches;
   // declared here (rather than down with the rest of the reader's state) so
-  // updateReaderRotateClass can reference it below — it runs immediately at
-  // load time, before the script would otherwise reach that later `let`.
+  // updateReaderRotateClass can reference them below — it runs immediately at
+  // load time, before the script would otherwise reach those later `let`s.
   let pageFlipInstance = null; // one St.PageFlip instance per open book
+  let currentLeaves = null; // this book's already-rendered leaf images (openReader), reused to rebuild pageFlipInstance on rotation without re-rendering the PDF
+  let currentAspect = null; // this book's leafHeight/leafWidth (openReader), needed to reconstruct the same PageFlip sizing on rebuild
   function updateReaderRotateClass(){
     // DEBUG: everything the toggle decision depends on, read ONCE and reused
     // (not re-read after) so the log reflects exactly what the toggle itself
@@ -896,20 +898,32 @@
     if (readerOpen) syncReaderMobileLayout();
     // #reader-stage's own width/height (not just its transform) differ between
     // the two class states — see body.mobile-reader-rotate #reader-stage in
-    // the CSS — so this is a genuine reflow, not a no-op. St.PageFlip only
-    // re-measures its container on an actual window 'resize' event or an
-    // explicit update() call; our class toggle triggers neither by itself,
-    // so without this, its cached page sizing and touch-zone math go stale
-    // the moment the phone's physically turned. requestAnimationFrame waits
-    // for the browser to actually apply the new layout first — calling
-    // update() synchronously here would still read the pre-toggle dimensions.
+    // the CSS — so this is normally a genuine reflow. But the two states CAN
+    // land on byte-identical offsetWidth/Height for a given viewport (proven
+    // via the debug log: 766x335 -> 766x335 on an actual rotation) — a plain
+    // pageFlip.update() just re-measures the container, so when the pixel
+    // size hasn't changed it re-measures nothing new and never rebuilds the
+    // canvas's internal touch-zone geometry, leaving hit-zones mapped to the
+    // pre-rotation coordinate space even though taps still reach the canvas.
+    // Rebuilding the instance from scratch forces that geometry to be
+    // recomputed from the DOM as it actually is now, regardless of whether
+    // the raw pixel dimensions happened to match. currentLeaves/currentAspect
+    // are the SAME already-rendered images from when the book was opened
+    // (openReader) — reused as-is here, so this never re-fetches or
+    // re-renders the PDF; turnToPage restores the spread the reader was
+    // already on. requestAnimationFrame waits for the browser to actually
+    // apply the new layout first — rebuilding synchronously here would still
+    // measure the pre-toggle layout.
     if (readerOpen) requestAnimationFrame(() => {
-      if (!pageFlipInstance) { debugLog('pageFlip.update() skipped: no pageFlipInstance'); return; }
+      if (!pageFlipInstance || !currentLeaves) { debugLog('pageFlip rebuild skipped: no pageFlipInstance/currentLeaves'); return; }
       try {
-        pageFlipInstance.update();
-        debugLog('pageFlip.update() called, completed without throwing');
+        const savedPageIndex = pageFlipInstance.getCurrentPageIndex();
+        createPageFlipInstance(currentLeaves, currentAspect);
+        pageFlipInstance.turnToPage(savedPageIndex);
+        updateControls();
+        debugLog(`pageFlip rebuilt after rotation, restored to page index ${savedPageIndex}, completed without throwing`);
       } catch (err) {
-        debugLog(`pageFlip.update() THREW: ${err && err.message}\n${(err && err.stack) || '(no stack)'}`);
+        debugLog(`pageFlip rebuild THREW: ${err && err.message}\n${(err && err.stack) || '(no stack)'}`);
       }
     });
   }
@@ -1520,38 +1534,22 @@
     syncReaderMobileLayout();
   }
 
-  async function openReader(book){
-    closeBook();
-    readerTitle.textContent = book.title;
-    readerSub.textContent = `${book.student} · ${book.program}`;
-    renderReaderInfo(book);
-    reader.classList.add('open');
-    readerLoading.style.display = 'block';
-    readerLoading.textContent = 'Loading…';
-    pageFlipBook.style.visibility = 'hidden';
-
-    try {
-      pdfDoc = await pdfjsLib.getDocument(withV(book.pdf)).promise;
-    } catch (err) {
-      console.warn(`No real PDF at ${book.pdf}, falling back to sample`, err);
-      try {
-        pdfDoc = await pdfjsLib.getDocument(withV('assets/pdfs/sample.pdf')).promise;
-      } catch (fallbackErr) {
-        readerLoading.textContent = 'Could not load this book’s PDF.';
-        console.error(fallbackErr);
-        return;
-      }
-    }
-
-    const { leaves, leafWidth, leafHeight } = await buildLeaves(book, pdfDoc.numPages);
-
+  // Builds (or rebuilds) pageFlipInstance from already-rendered leaf images —
+  // shared by openReader (first build for a newly opened book) and the
+  // rotation-triggered rebuild in updateReaderRotateClass (reusing the SAME
+  // cached leaves, so it never re-renders the PDF).
+  function createPageFlipInstance(leaves, aspect){
     if (pageFlipInstance){
-      // PageFlip.clear() unconditionally calls this.ui.clear(), which only exists on
-      // the HTML-loading UI class — the canvas/image UI loadFromImages() uses has no
-      // clear() and this throws, aborting openReader() before it ever builds the new
-      // instance (and leaking the old one's window-level mouse/touch listeners).
-      // getUI().removeHandlers() is the correct, safe way to detach those listeners
-      // for this UI mode; the DOM itself is reset by hand right after.
+      // PageFlip.destroy() removes its own container element from the DOM
+      // (this.block.remove() internally) — not what we want when we're about
+      // to immediately build a replacement instance on the SAME #page-flip-book
+      // element. PageFlip.clear() unconditionally calls this.ui.clear(), which
+      // only exists on the HTML-loading UI class — the canvas/image UI
+      // loadFromImages() uses has no clear() and this throws, aborting before
+      // ever building the new instance (and leaking the old one's window-level
+      // mouse/touch listeners). getUI().removeHandlers() is the correct, safe
+      // way to detach those listeners for this UI mode; the DOM itself is
+      // reset by hand right after.
       pageFlipInstance.getUI().removeHandlers();
       pageFlipBook.innerHTML = '';
     }
@@ -1559,7 +1557,6 @@
     // own real leaf dimensions (see buildLeaves) rather than a fixed guess, so 'stretch'
     // sizing preserves each PDF's actual proportions instead of squashing every book
     // into the same box. min/max scale off the same aspect so clamping never distorts it.
-    const aspect = leafHeight / leafWidth;
     const baseWidth = 420;
     pageFlipInstance = new St.PageFlip(pageFlipBook, {
       width: baseWidth,
@@ -1589,6 +1586,37 @@
     });
     pageFlipInstance.loadFromImages(leaves);
     pageFlipInstance.on('flip', updateControls);
+  }
+
+  async function openReader(book){
+    closeBook();
+    readerTitle.textContent = book.title;
+    readerSub.textContent = `${book.student} · ${book.program}`;
+    renderReaderInfo(book);
+    reader.classList.add('open');
+    readerLoading.style.display = 'block';
+    readerLoading.textContent = 'Loading…';
+    pageFlipBook.style.visibility = 'hidden';
+
+    try {
+      pdfDoc = await pdfjsLib.getDocument(withV(book.pdf)).promise;
+    } catch (err) {
+      console.warn(`No real PDF at ${book.pdf}, falling back to sample`, err);
+      try {
+        pdfDoc = await pdfjsLib.getDocument(withV('assets/pdfs/sample.pdf')).promise;
+      } catch (fallbackErr) {
+        readerLoading.textContent = 'Could not load this book’s PDF.';
+        console.error(fallbackErr);
+        return;
+      }
+    }
+
+    const { leaves, leafWidth, leafHeight } = await buildLeaves(book, pdfDoc.numPages);
+    // cached so a rotation-triggered rebuild (updateReaderRotateClass) can
+    // reuse these exact images/aspect instead of re-rendering the PDF
+    currentLeaves = leaves;
+    currentAspect = leafHeight / leafWidth;
+    createPageFlipInstance(currentLeaves, currentAspect);
 
     pageFlipBook.style.visibility = 'visible';
     readerLoading.style.display = 'none';
