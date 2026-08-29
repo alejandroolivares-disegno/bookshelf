@@ -415,67 +415,19 @@
       pointer-events:none; color:#999; font-size:20px; line-height:1;
     }
     #reader-nav-hint-prev{ top:64px; }
-    /* #reader-info now always sits up near the top-right (see #reader-info
-       below), so there's no longer a bottom-anchored info block for this hint
-       to clear — a plain fixed distance from the screen's bottom edge */
+    /* #reader-info is hidden entirely on mobile (see below), so this is just
+       a plain fixed distance from the screen's bottom edge */
     #reader-nav-hint-next{ bottom:64px; }
     body.mobile-reader-rotate #reader-nav-hint-next{ transform:rotate(90deg); }
     body.mobile-reader-rotate #reader-nav-hint-prev{ transform:rotate(90deg); }
 
-    /* close moves to the top-left now that #reader-info has taken over the
-       top-right/top-left info-bar spot's old job — see #reader-info below */
-    #reader-close{ left:24px; right:auto; }
-    /* every book uses the same rotated, top-right-anchored block now (see
-       renderReaderInfo in JS for the "[+] MORE INFO" collapse most books get
-       instead of showing this directly) — rotates the whole block 90deg to
-       match the book (only while body.mobile-reader-rotate is active — see
-       #reader-stage above). Positioning here is a first pass, not yet tuned
-       against each book's actual PDF placement — that comes later per-book. */
-    #reader-info{
-      /* top/left are set precisely in JS (syncReaderMobileLayout) — CSS alone
-         can't reliably position a rotated, variable-height box, see the
-         comment there. top:calc(100% - 20px); left:24px below is only the
-         UNROTATED (landscape) fallback — a plain, un-rotated bottom-left
-         position, no different from any other absolutely-positioned box. */
-      z-index:5;
-      top:calc(100% - 20px); bottom:auto; left:24px;
-      /* align-items is the pre-rotation row's CROSS axis (vertical) — it's what
-         determines the LEFT-margin alignment post-rotation, since rotating swaps
-         which axis is which. flex-end put only the tallest group ([Referentes],
-         it has the most stacked name lines) flush against the margin, since
-         "end"-aligned items share their bottom edge — shorter groups had unused
-         space on the opposite (pre-rotation top) side, pushing their post-
-         rotation position away from the margin instead. flex-start aligns
-         all three groups' pre-rotation TOP edges instead, which is the side that
-         maps to the shared left margin, regardless of each group's own height. */
-      flex-direction:row; align-items:flex-start;
-    }
-    /* transform-origin:bottom right means THIS element's pre-rotation
-       bottom-right corner is the one point that stays fixed through the
-       rotation, and it becomes the rotated box's visual BOTTOM-left corner
-       (rotating 90deg swings width downward-left... precisely, everything else
-       swings around this fixed point). That fixed point ends up on screen at
-       (left + offsetWidth, top + offsetHeight) — offset from the literal
-       top/left values by the box's own pre-rotation size, not sitting at
-       (left, top) directly — which is why syncReaderMobileLayout solves for
-       top/left backward from the desired on-screen position instead of using
-       a plain fixed value. (Was transform-origin:top left + rotate(-90deg)
-       before the rotation direction was corrected — flipping the rotate's sign
-       alone would have swung this corner to top-right instead, so the origin
-       corner flips too, to keep the same corner — bottom-left — fixed through
-       the rotation.) */
-    body.mobile-reader-rotate #reader-info{
-      transform-origin:bottom right; transform:rotate(90deg);
-    }
-    /* the collapsed state's whole content — matches .reader-info-label's own
-       font/tracking (same as [Estudiante] etc.) so it reads as part of the
-       same block rather than a generic button */
-    .reader-info-toggle{
-      display:block; background:none; border:none; padding:0; margin:0; cursor:pointer;
-      -webkit-appearance:none; appearance:none;
-      font-family:'Martian Mono', var(--serif); font-weight:200; font-size:9px;
-      letter-spacing:0.075em; text-transform:uppercase; color:inherit;
-    }
+    /* there was never a good way to fit this alongside the rotated reader —
+       overlapping the book, a manual reveal button with no way to hide it
+       again — so it's dropped entirely on mobile rather than kept half-
+       working. Desktop keeps showing it directly (renderReaderInfo), same as
+       always; #reader-close no longer needs its own mobile position either,
+       since that was only to stay clear of this. */
+    #reader-info{ display:none; }
   }
 </style>
 </head>
@@ -675,9 +627,7 @@
       spineWidth: 36,
       spineHeight: 236,
       // marks this as one of the best books — shows a thin line + dot above its spine
-      featured: true,
-      // mobile reader only — see the readerInfoDirect comment in the generated-books loop below
-      readerInfoDirect: true
+      featured: true
     },
     ...Array.from({length: 34}, (_, i) => {
       const n = i + 2;
@@ -718,13 +668,7 @@
         // page 1 of this PDF is a full print wrap (back cover | spine | front cover) rather
         // than a lone front cover, and its last page is an ordinary interior spread rather
         // than a dedicated backside — see buildLeaves()'s coverWrap branch
-        ...(n === 16 ? { coverWrap: 'right' } : {}),
-        // mobile reader only: every book's info block uses the same rotated,
-        // top-right layout now, but most start collapsed behind a "[+] MORE
-        // INFO" button (see renderReaderInfo) since it hasn't been individually
-        // checked against each book's own PDF placement yet — these have, so
-        // they show directly instead
-        ...([1, 2, 4, 5, 7, 11, 12, 13, 14, 16, 17, 20, 23, 24, 29, 30, 31, 32].includes(n) ? { readerInfoDirect: true } : {})
+        ...(n === 16 ? { coverWrap: 'right' } : {})
       };
     })
   ];
@@ -804,13 +748,10 @@
   function updateReaderRotateClass(){
     document.body.classList.toggle('mobile-reader-rotate', IS_MOBILE_DEVICE && isDevicePortrait());
 
-    // re-measure/reposition #reader-info if the reader's open — its layout math
-    // (syncReaderMobileLayout) depends on whether the rotate class is active.
     // Looked up fresh (not the `reader` const declared further down the script)
     // since this runs immediately at load time, before that const initializes.
     const readerEl = document.getElementById('reader');
     const readerOpen = readerEl && readerEl.classList.contains('open');
-    if (readerOpen) syncReaderMobileLayout();
     // #reader-stage's own width/height (not just its transform) differ between
     // the two class states — see body.mobile-reader-rotate #reader-stage in
     // the CSS — but they can still land on a byte-identical pixel size for a
@@ -1362,52 +1303,15 @@
     ctrlNext.disabled = cur >= total;
   }
 
-  // #reader-info is left to overlap the book rather than reserving space for
-  // it (#reader-stage no longer shrinks to make room — see
-  // body.mobile-reader-rotate #reader-stage in the CSS).
-  function syncReaderMobileLayout(){
-    // Keyed off the real-orientation rotate class (see updateReaderRotateClass),
-    // not mobileMql alone — this math assumes #reader-info is actually rotated,
-    // which is no longer true once the phone's physically turned to landscape.
-    if (!document.body.classList.contains('mobile-reader-rotate')) {
-      // clear any inline positioning a previous rotated state left behind, so
-      // #reader-info falls back to its plain (unrotated) CSS layout instead of
-      // stale rotated-math coordinates.
-      readerInfo.style.left = '';
-      readerInfo.style.top = '';
-      readerInfo.style.right = '';
-      readerInfo.style.bottom = '';
-      return;
-    }
-    // #reader-info's own CSS top/left (top:calc(100% - 20px); left:24px) only
-    // serves the UNROTATED (landscape) fallback above — once rotated around
-    // transform-origin:bottom right, the corner that stays fixed through the
-    // rotate ends up on screen at (left + offsetWidth, top + offsetHeight), not
-    // at the literal left/top values themselves (rotating around a box's own
-    // corner offsets the fixed point by the box's own pre-rotation size) — so
-    // a plain fixed top/left can't reliably land it any particular distance
-    // from the screen edges. Measuring the real pre-rotation box
-    // (offsetWidth/Height — transforms don't affect layout size) and solving
-    // backward for where to place it lands the *visual*, post-rotation box
-    // exactly `rightClearance` from the screen's right edge and `topClearance`
-    // down from its top — both tunable directly, regardless of how tall this
-    // book's referente list is, or whether it's currently just the "[+] MORE
-    // INFO" button (see renderReaderInfo) or the full info block.
-    const rightClearance = 24, topClearance = 96;
-    const w = readerInfo.offsetWidth, h = readerInfo.offsetHeight;
-    readerInfo.style.left = (window.innerWidth - rightClearance - h - w) + 'px';
-    readerInfo.style.top = (topClearance - h + w) + 'px';
-    readerInfo.style.right = 'auto';
-    readerInfo.style.bottom = 'auto';
-  }
-
-  // Mobile-only: most books haven't been individually checked against their
-  // own PDF's placement in the rotated reader yet (see book.readerInfoDirect),
-  // so their info starts collapsed behind a "[+] MORE INFO" button instead of
-  // risking it landing awkwardly over the book by default. Desktop, and any
-  // readerInfoDirect book, always shows it directly.
+  // Mobile: no good way to fit this alongside the rotated reader without
+  // either covering the book or needing a manual reveal with no way to hide
+  // it again — dropped entirely there (#reader-info{display:none} in the
+  // mobile CSS handles the visual side; skipping the innerHTML build here too
+  // just avoids doing pointless work). Desktop keeps showing it directly, as
+  // always.
   function renderReaderInfo(book){
-    const infoHTML = `
+    if (mobileMql.matches) { readerInfo.innerHTML = ''; return; }
+    readerInfo.innerHTML = `
       <div class="reader-info-col">
         <div class="reader-info-label">[Estudiante]</div>
         <div class="reader-info-name">${book.student}</div>
@@ -1420,16 +1324,6 @@
         <div class="reader-info-label">[4to Semestre]</div>
       </div>
     `;
-    if (!book.readerInfoDirect && mobileMql.matches) {
-      readerInfo.innerHTML = '<button type="button" class="reader-info-toggle">[+] MORE INFO</button>';
-      readerInfo.querySelector('.reader-info-toggle').addEventListener('click', () => {
-        readerInfo.innerHTML = infoHTML;
-        syncReaderMobileLayout();
-      });
-    } else {
-      readerInfo.innerHTML = infoHTML;
-    }
-    syncReaderMobileLayout();
   }
 
   // Builds (or rebuilds) pageFlipInstance from already-rendered leaf images —
