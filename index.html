@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Student Books — Shelf</title>
+<link rel="stylesheet" href="assets/vendor/page-flip.css">
+<style>
+  @font-face {
+    font-family: 'Josefin Slab';
+    src: url('assets/fonts/JosefinSlab-VariableFont_wght.ttf') format('truetype');
+    font-weight: 100 700;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: 'Martian Mono';
+    src: url('assets/fonts/MartianMono-VariableFont_wdth,wght.ttf') format('truetype-variations');
+    font-weight: 100 800;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: 'RNS Physis';
+    src: url('assets/fonts/RNSPhysis-Medium.otf') format('opentype');
+    font-weight: 500;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: 'RNS Physis';
+    src: url('assets/fonts/RNSPhysis-Bold.otf') format('opentype');
+    font-weight: 700;
+    font-style: normal;
+  }
+
+  :root{
+    --paper:#FFFFFF;
+    --plank:#EDECE7;
+    --plank-edge:#DAD8D1;
+    --ink:#141414;
+    --muted:#6B6B66;
+    --line:#D8D6CF;
+    --scrim: rgba(255,255,255,0.88);
+    --serif: Georgia, 'Iowan Old Style', 'Times New Roman', serif;
+    --mono: ui-monospace, 'SF Mono', 'IBM Plex Mono', 'Courier New', monospace;
+    --sans: -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0; padding:0; background:var(--paper); color:var(--ink); font-family:var(--sans);}
+  body{display:flex; flex-direction:column; min-height:100vh;}
+  button{font-family:inherit; cursor:pointer; background:none; border:none; color:var(--ink);}
+  button:focus-visible, .book:focus-visible{outline:2px solid var(--ink); outline-offset:3px;}
+
+  /* ---------- header ---------- */
+  header{
+    display:flex; justify-content:space-between; align-items:baseline;
+    padding:28px 40px;
+  }
+  .header-title{font-family:'RNS Physis', var(--sans); font-weight:700; font-size:18px; letter-spacing:-0.02em;}
+  .header-count{font-family:'Martian Mono', var(--mono); font-weight:200; font-size:8px; color:var(--muted); letter-spacing:0.06em; text-transform:uppercase;}
+  .header-count-wrap{ display:flex; flex-direction:column; align-items:flex-end; gap:5px; }
+  .header-legend{
+    font-family:'Martian Mono', var(--mono); font-weight:300; font-size:8.3px; color:#c0392b;
+    letter-spacing:0.02em; line-height:1.3; text-align:left; text-transform:uppercase;
+    white-space:nowrap; text-decoration:underline;
+    /* anchored to #shelf's own top edge, not its (dynamic, glued-to-bottom) bottom —
+       63px = 64px shelf padding-top + 56px row padding-top - 49px the tallest
+       marker+dot ever protrudes above a spine's own top, minus an 8px gap;
+       translateY(-100%) bottom-anchors it at that point regardless of its own
+       rendered height (it can wrap to 2 lines depending on width). left:40px
+       matches the header title/toggle menu's own left edge, not #shelf's own
+       46px content padding (which would sit 6px further right, misaligned). */
+    position:absolute; left:40px; top:63px; transform:translateY(-100%);
+  }
+  /* desktop only — with both the estudiante and referente name lists open at
+     once (an intentional desktop-only affordance, kept independent unlike
+     mobile's mutual exclusion), their combined height can run tall enough to
+     cover this legend; hiding it while both are open avoids the overlap,
+     rather than trying to push it somewhere that works for every combination */
+  @media (min-width:601px){
+    .header-legend.legend-hidden-both-open{ display:none; }
+  }
+
+  /* ---------- table of contents ---------- */
+  #toc{
+    position:fixed; top:var(--toc-top, 68px); left:40px; z-index:30;
+    max-height:65vh; overflow-y:auto;
+    display:flex; flex-direction:column; align-items:flex-start;
+  }
+  /* #toc-panel/#referente-columns/#about-panel need flex-shrink:0 (below) — as
+     flex children of #toc, they'd otherwise get proportionally squeezed by
+     #toc's own max-height:65vh whenever combined open content exceeds it,
+     instead of #toc just scrolling (its actual overflow-y:auto intent) */
+  #toc-toggle{ display:flex; align-items:baseline; gap:6px; color:#AAAAAA; padding:0; margin:0; }
+  #toc-toggle-icon{ font-family:'Martian Mono', var(--mono); font-weight:200; font-size:10px; letter-spacing:0.2em; color:inherit; }
+  #toc-toggle-label{ font-family:'Martian Mono', var(--serif); font-weight:200; font-size:10px; letter-spacing:0.075em; color:inherit; text-transform:uppercase; }
+  #toc-panel{
+    display:flex; flex-direction:row; align-items:flex-start; gap:28px; margin-top:8px; margin-bottom:0;
+    max-height:0; overflow:hidden; flex-shrink:0;
+    transition: max-height .55s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  #toc-panel.open{ margin-bottom:10px; }
+  #toc-columns{ display:flex; flex-direction:row; gap:14px; }
+  .toc-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; align-items:flex-start; gap:0; }
+  .toc-list button{ font-family:'RNS Physis', var(--sans); font-size:12px; line-height:1.15; letter-spacing:-0.02em; text-align:left; padding:0; color:var(--ink); transition:opacity .15s ease; }
+  .toc-list button:hover{ text-decoration:underline; }
+  .toc-list button.active{ font-weight:700; text-decoration:underline; }
+  .student-marker-dot{
+    display:inline-block; width:3.5px; height:3.5px; margin-left:6px;
+    border-radius:50%; background:#c0392b; vertical-align:middle;
+  }
+
+  #referente-toggle{ display:flex; align-items:baseline; gap:6px; color:#AAAAAA; padding:0; margin:0; }
+  #referente-toggle-icon{ font-family:'Martian Mono', var(--mono); font-weight:200; font-size:10px; letter-spacing:0.2em; color:inherit; }
+  #referente-toggle-label{ font-family:'Martian Mono', var(--serif); font-weight:200; font-size:10px; letter-spacing:0.075em; color:inherit; text-transform:uppercase; }
+  #referente-columns{
+    display:flex; flex-direction:row; gap:14px; margin-top:8px; margin-bottom:0;
+    max-height:0; overflow:hidden; flex-shrink:0;
+    transition: max-height .55s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  #referente-columns.open{ margin-bottom:10px; }
+
+  #about-toggle{ display:flex; align-items:baseline; gap:6px; color:#AAAAAA; padding:0; margin:0; }
+  #about-toggle-icon{ font-family:'Martian Mono', var(--mono); font-weight:200; font-size:10px; letter-spacing:0.2em; color:inherit; }
+  #about-toggle-label{ font-family:'Martian Mono', var(--serif); font-weight:200; font-size:10px; letter-spacing:0.075em; color:inherit; text-transform:uppercase; }
+  #about-panel{
+    display:flex; margin-top:8px;
+    max-height:0; overflow:hidden; flex-shrink:0;
+    transition: max-height .55s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .about-text{
+    max-width:300px; margin:0 0 12px;
+    font-family:'RNS Physis', var(--sans); font-size:12px; line-height:1.5; letter-spacing:-0.02em; color:var(--ink);
+  }
+  .about-text:last-child{ margin-bottom:0; }
+
+  /* ---------- shelf ---------- */
+  #shelf{padding:64px 46px 18px; max-width:1610px; width:100%; margin:auto auto 0; transform-origin:bottom center; position:relative;}
+  .shelf-row{
+    display:flex; align-items:flex-end; gap:3px;
+    flex-wrap:nowrap; overflow-x:auto;
+    /* overflow-x:auto silently computes overflow-y to auto too (per spec, since
+       it's not left as 'visible'), which would clip .book-marker's protrusion
+       above the row's own top edge — this padding-top reserves room for it */
+    padding-top:56px;
+    padding-bottom:16px;
+    margin-bottom:20px;
+    position:relative;
+  }
+
+  .book-slot{
+    position:relative;
+    flex-shrink:0;
+    display:flex;
+    align-items:flex-end;
+  }
+  .book-marker{
+    position:absolute; left:50%; bottom:100%; transform:translateX(-50%);
+    transform-origin:bottom center;
+    width:1px; height:42px; margin-bottom:4px;
+    background:#c0392b;
+    pointer-events:none;
+    /* the standalone `scale` property (not the `transform` shorthand) animates
+       growth so it never fights the horizontal centering — including the
+       inline transform:translateX(...) some books get for a markerOffset —
+       the two properties compose independently instead of one replacing the other */
+    animation: marker-line-grow .5s ease-out both;
+  }
+  .book-marker::after{
+    content:''; position:absolute; top:-3px; left:50%; transform:translateX(-50%);
+    width:5px; height:5px; border-radius:50%; background:#c0392b;
+    animation: marker-dot-grow .25s ease-out .5s both;
+  }
+  @keyframes marker-line-grow{
+    from{ scale:1 0; }
+    to{ scale:1 1; }
+  }
+  @keyframes marker-dot-grow{
+    from{ scale:0; }
+    to{ scale:1; }
+  }
+  /* .header-legend ("Los proyectos destacados...") sits before .shelf-row in
+     #shelf's own child order, so a plain sibling combinator reaches every
+     marker without needing :has() — hovering the legend blinks every marker
+     to visually tie the two together. Overriding the (already-finished,
+     fill-mode:both) entrance animation here is fine, not a conflict — the
+     :hover state only matters long after that one-time entrance has settled. */
+  .header-legend:hover ~ .shelf-row .book-marker{
+    animation: marker-blink 0.6s ease-in-out infinite;
+  }
+  @keyframes marker-blink{
+    0%, 100%{ opacity:1; }
+    50%{ opacity:0.15; }
+  }
+
+  .book{
+    position:relative;
+    background:none;
+    padding:0;
+    overflow:hidden;
+    border:1px solid var(--line);
+    box-shadow: 0 2px 4px rgba(20,20,20,0.08);
+    transition: transform .2s ease, width .35s ease, box-shadow .2s ease;
+    flex-shrink:0;
+    transform: rotate(var(--tilt, 0deg));
+    transform-origin: bottom center;
+  }
+  .book:not(.open):hover, .book:not(.open):focus-visible{
+    transform: rotate(var(--tilt, 0deg)) translateY(-7px);
+    box-shadow: 0 10px 14px -6px rgba(20,20,20,0.28);
+  }
+  .book.open{ transform: rotate(0deg); }
+
+  .spine-layer, .cover-layer{
+    position:absolute; inset:0;
+    transition: opacity .3s ease;
+  }
+  .spine-layer{ opacity:1; z-index:1; }
+  .cover-layer{ opacity:0; z-index:2; }
+  .book.open .spine-layer{ opacity:0; }
+  .book.open .cover-layer{ opacity:1; }
+  .spine-layer img, .cover-layer img{ width:100%; height:100%; object-fit:cover; object-position:top; display:block; }
+  .spine-fallback{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    writing-mode: vertical-rl; text-orientation:mixed;
+    font-family:var(--mono); font-size:11px; letter-spacing:0.08em; color:var(--muted);
+  }
+  .book-close{
+    position:absolute; top:6px; right:6px; z-index:10;
+    opacity:0; visibility:hidden;
+    font-family:var(--mono); font-size:18px; color:var(--ink);
+    background:rgba(255,255,255,0.82); border-radius:50%;
+    width:24px; height:24px; display:flex; align-items:center; justify-content:center;
+    cursor:pointer; line-height:1; transition:opacity .2s ease;
+  }
+  .book.open .book-close{ opacity:1; visibility:visible; }
+
+  /* ---------- reader (click 2) ---------- */
+  #reader{
+    position:fixed; inset:0; background:#111111;
+    display:flex; flex-direction:column;
+    opacity:0; visibility:hidden; transition:opacity .3s ease;
+    z-index:50;
+  }
+  #reader.open{ opacity:1; visibility:visible; }
+
+  /* only the close button remains visible during PDF viewing — everything else in
+     the bar (title/subtitle) is hidden, and the button escapes the now-empty bar's
+     layout via absolute positioning against #reader itself */
+  #reader-bar{ height:0; padding:0; border:none; }
+  #reader-title, #reader-sub{ display:none; }
+  #reader-close{
+    position:absolute; top:16px; right:24px; z-index:5;
+    font-family:var(--mono); font-size:22px; color:rgba(255,255,255,0.55); line-height:1;
+  }
+  #reader-close:hover{ color:#ffffff; }
+  #reader-info{
+    position:absolute; top:16px; left:24px; z-index:5;
+    display:flex; flex-direction:row; gap:28px;
+    color:#9a9a9a; line-height:1.15;
+  }
+  #reader-info .reader-info-col{ display:flex; flex-direction:column; gap:4px; }
+  #reader-info .reader-info-name, #reader-info .reader-info-referentes{
+    font-family:'RNS Physis', var(--serif); font-size:10px; letter-spacing:-0.02em;
+  }
+  #reader-info .reader-info-label{
+    font-family:'Martian Mono', var(--serif); font-weight:200; font-size:8px;
+    letter-spacing:0.075em; text-transform:uppercase;
+  }
+
+  #reader-stage-wrap{
+    flex:1; display:flex; align-items:center; justify-content:center; position:relative;
+    padding:24px; min-height:0;
+  }
+  #reader-stage{
+    position:relative; perspective:2000px; width:100%; height:100%; max-height:78vh;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #page-flip-book{ width:100%; height:100%; }
+
+  /* prev/next + page indicator hidden — PageFlip's own click/drag corner interaction
+     and the arrow keys still navigate on desktop; the JS keeps updating these
+     elements harmlessly under the hood. On mobile they're shown (see the mobile
+     override) since the rotated stage's drag-to-flip corners don't line up with
+     where a finger actually touches the screen — a St.PageFlip quirk (it mixes
+     rotation-aware and rotation-unaware coordinates internally) that isn't
+     practical to patch in a minified vendor file, so real buttons calling its
+     flipNext()/flipPrev() API directly sidestep the broken hit-testing entirely. */
+  #reader-controls{ display:none; }
+  .reader-tap-zone{ display:none; }
+  .reader-nav-hint{ display:none; }
+  #reader-loading{
+    /* #reader-stage is display:flex, and #page-flip-book (100%x100%, even while
+       empty/hidden pre-load) is its other child — without taking this out of
+       flex flow, the two siblings split the row's space between them instead of
+       overlapping, pushing the loading text off to one side (barely visible on
+       desktop's wide stage, glaring once rotated into a narrow one on mobile) */
+    position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);
+    font-family:var(--mono); font-size:11px; color:rgba(255,255,255,0.55); letter-spacing:0.05em;
+    text-transform:uppercase; white-space:nowrap;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .book{ transition:none !important; }
+    .book-marker, .book-marker::after{ animation:none !important; }
+  }
+
+  /* ---------- shelf size control ---------- */
+  #size-control{
+    display:none; /* hidden for now — re-enable by switching this to flex */
+    position:fixed; bottom:16px; left:16px; z-index:35;
+    align-items:center; gap:10px;
+    font-family:var(--mono); font-size:11px; color:var(--muted);
+    letter-spacing:0.04em; text-transform:uppercase;
+  }
+  #size-control input[type="range"]{ width:140px; accent-color:var(--ink); }
+  #size-value{ width:34px; }
+
+  /* ---------- mobile overrides (kept last so they always win the cascade) ---------- */
+  @media (max-width:600px){
+    .header-title{ line-height:1.05; }
+    /* #toc is position:fixed on desktop (floats over the shelf, doesn't move with
+       page scroll); on mobile that let an expanded menu and the shelf drift apart
+       and collide as soon as the page was scrolled (the fixed menu stays put in
+       the viewport, the normal-flow shelf scrolls past it). Reverting to normal
+       in-flow positioning here makes it push the shelf down and scroll together
+       with the rest of the page like any other content — no custom offset math
+       needed, and it can never end up misaligned relative to the shelf again. */
+    /* left/right on the base rule only affect positioned elements, so they no
+       longer do anything now that #toc is static here — margin is the in-flow
+       equivalent, matching the 40px side padding header/shelf already use */
+    #toc{ position:static; margin:0 40px; }
+    #toc-panel{ flex-direction:column; width:100%; gap:10px; }
+    #toc-columns{ flex-wrap:wrap; width:100%; }
+    /* wider than the shared 14px gap — the extra breathing room also means the
+       3rd column gets cut off a little more at the screen edge, a visual cue
+       that there's more to scroll to */
+    #referente-columns{ width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; gap:26px; }
+    /* nowrap here means every column must fit on the one row #referente-columns
+       lays out — without this, flex's default shrink squeezes each column
+       narrower than its longest name, wrapping it onto 2-3 lines instead of
+       just letting the (already-enabled) horizontal scroll reach the overflow */
+    #referente-columns .toc-list{ flex-shrink:0; }
+
+    /* the PDF spread is landscape-shaped; a portrait phone gives it almost no
+       usable width to stretch into. Rotating it -90deg lets it use the phone's
+       full HEIGHT as its effective width instead — so the box is sized with
+       width/height swapped (pre-rotation) and then rotated to fill the portrait
+       screen. transform-origin stays centered (the default) since #reader-stage
+       is itself centered by #reader-stage-wrap's flex alignment. flex-shrink:0
+       is required — #reader-stage-wrap is a row-direction flex container, and
+       without it the pre-rotation width (deliberately larger than the wrap's
+       own content box, since it's meant to become the rotated box's height)
+       gets silently squeezed back down to fit, same as the flex-shrink bug hit
+       earlier with #toc's own panels. */
+    #reader-stage{
+      /* width becomes the rotated box's HEIGHT — shrunk well below 100vh so the
+         book clears the (unrotated, real) info bar up top and button row below,
+         which live outside the stage and don't grow/shrink along with it.
+         #reader-info's height varies with how many referentes a book lists, so
+         --reader-bottom-clearance is computed live (syncReaderMobileLayout) from
+         its actual current height instead of a fixed guess a book with even more
+         referentes could still collide with. */
+      width:calc(100vh - 90px - var(--reader-bottom-clearance, 90px));
+      height:calc(100vw - 64px); max-height:none;
+      flex-shrink:0;
+      /* #reader-stage-wrap centers this box, which by itself would split the
+         (now asymmetric) top/bottom clearance evenly — translateY re-biases the
+         rotated result toward the smaller (top) clearance so bottom actually
+         gets its full share. Rotating a non-square box around its own center
+         swaps which edge is which, but a plain screen-space translateY *after*
+         the rotate (transform functions apply right-to-left, so this one runs
+         in the parent's normal, unrotated coordinate space) shifts the already-
+         rotated result by a plain vertical pixel amount, sidestepping that. */
+      transform: translateY(calc((90px - var(--reader-bottom-clearance, 90px)) / 2)) rotate(-90deg);
+    }
+
+    /* large, invisible tap targets covering the top/bottom half of the whole
+       screen — sit BELOW the close button/info bar in z-index (both have
+       z-index:5) so those stay independently tappable at their own spot;
+       everywhere else, a tap flips a page. These replace the prev/next buttons
+       entirely on mobile (#reader-controls stays hidden, its base display:none
+       unoverridden here), which frees up the bottom of the screen for #reader-info. */
+    .reader-tap-zone{
+      display:block; position:absolute; left:0; right:0; z-index:3;
+    }
+    #reader-tap-next{ top:0; height:50%; }
+    #reader-tap-prev{ top:50%; bottom:0; }
+
+    /* subtle "you can tap here" hints — the same ‹/› glyphs the old prev/next
+       buttons used, rotated -90deg along with everything else in the rotated
+       reading experience: › becomes an upward arrow (top = next/forward),
+       ‹ becomes a downward arrow (bottom = previous/back). Fixed distances from
+       the screen edges (not the PDF stage, whose size varies per book's aspect
+       ratio) so they land consistently just past the close button/info bar;
+       pointer-events:none keeps them purely visual, never blocking a tap. */
+    .reader-nav-hint{
+      display:flex; justify-content:center; position:absolute; left:0; right:0; z-index:2;
+      pointer-events:none; color:#999; font-size:20px; line-height:1;
+    }
+    #reader-nav-hint-next{ top:64px; transform:rotate(-90deg); }
+    /* sits just above #reader-info, whatever its current (variable) height is */
+    #reader-nav-hint-prev{ bottom:calc(var(--reader-info-height, 44px) + 20px); transform:rotate(-90deg); }
+
+    /* close moves to the top-left now that #reader-info has taken over the
+       top-right/top-left info-bar spot's old job — see #reader-info below */
+    #reader-close{ left:24px; right:auto; }
+    /* both layouts rotate the whole block -90deg to match the book — which
+       pre-rotation flex-direction is used determines the post-rotation
+       arrangement: column (groups stacked pre-rotation) becomes a horizontal
+       strip once rotated (default/"bottom" layout, for books with more
+       headroom top/bottom); row (groups side-by-side pre-rotation) becomes a
+       vertical stack once rotated ("side" layout, for books whose rotated
+       spreads run closer to the full screen width — set per-book via
+       book.readerInfoLayout). Positioning here is a first pass, not yet tuned
+       against each book's actual PDF placement — that comes later per-book. */
+    #reader-info{
+      /* top/left are set precisely in JS (syncReaderMobileLayout) — CSS alone
+         can't reliably center+bottom-anchor a rotated, variable-height box,
+         see the comment there */
+      z-index:5;
+      /* align-items is the pre-rotation column's CROSS axis (horizontal) — with
+         center (previous value), each group centers within the row's width
+         (set by its widest single line, e.g. a long referente name), so a
+         group whose own lines are all shorter than that ends up shifted —
+         invisible when all 3 groups happen to be similarly wide, glaring (like
+         book 15, whose "Guillaume Sbalchiero" line is much wider than its
+         others) when they're not. flex-start aligns every group's own left
+         edge instead, independent of how wide any group's content is. */
+      flex-direction:column; justify-content:center; align-items:flex-start; gap:16px;
+      transform:rotate(-90deg);
+    }
+    #reader-info.reader-info-side{
+      /* transform-origin:top left means THIS element's pre-rotation top-left
+         corner is the one point that stays fixed through the rotation, and it
+         becomes the rotated box's visual BOTTOM-left corner (rotating -90deg
+         swings width downward-left... precisely, everything else swings around
+         this fixed point) — so positioning that corner directly via top/left
+         (not bottom, which would depend on this book's own content height, since
+         #reader-info's box height varies with how many referentes are listed)
+         reliably anchors the visual result at (left, 100%-20px) regardless of
+         its size. calc(100% - 20px) resolves against #reader's own height
+         (it's the containing block, and #reader is inset:0 = the viewport). */
+      top:calc(100% - 20px); bottom:auto; left:24px;
+      /* align-items is the pre-rotation row's CROSS axis (vertical) — it's what
+         determines the LEFT-margin alignment post-rotation, since rotating swaps
+         which axis is which. flex-end put only the tallest group ([Referentes],
+         it has the most stacked name lines) flush against the margin, since
+         "end"-aligned items share their bottom edge — shorter groups had unused
+         space on the opposite (pre-rotation top) side, pushing their post-
+         rotation position away from the margin instead. flex-start aligns
+         all three groups' pre-rotation TOP edges instead, which is the side that
+         maps to the shared left margin, regardless of each group's own height. */
+      flex-direction:row; align-items:flex-start;
+      transform-origin:top left; transform:rotate(-90deg);
+    }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-title">Archivo Editorial | Instituto de Diseño de Caracas</div>
+  <div class="header-count-wrap">
+    <div class="header-count" id="book-count"></div>
+  </div>
+</header>
+
+<div id="size-control">
+  <label for="size-slider">Shelf size</label>
+  <input type="range" id="size-slider" min="0.5" max="2" step="0.05" value="1">
+  <span id="size-value">100%</span>
+</div>
+
+<nav id="toc" aria-label="Table of contents">
+  <button id="toc-toggle" aria-expanded="false">
+    <span id="toc-toggle-icon">[+]</span><span id="toc-toggle-label">Buscar por Estudiante</span>
+  </button>
+  <div id="toc-panel">
+    <div id="toc-columns"></div>
+  </div>
+  <button id="referente-toggle" aria-expanded="false">
+    <span id="referente-toggle-icon">[+]</span><span id="referente-toggle-label">Filtrar por Referente</span>
+  </button>
+  <div id="referente-columns"></div>
+  <button id="about-toggle" aria-expanded="false">
+    <span id="about-toggle-icon">[+]</span><span id="about-toggle-label">About</span>
+  </button>
+  <div id="about-panel">
+    <div>
+      <p class="about-text">El Archivo Editorial del Instituto de Diseño de Caracas es una librería digital pública en constante construcción. Su misión es la de preservar trabajos de carácter editorial que han sido desarrollados por los estudiantes de la Escuela de Diseño Gráfico. El desarrollo de este Archivo Editorial y su curaduría no representa de manera oficial al IDC.</p>
+      <p class="about-text">Como tal, exhibe proyectos de distinta índole, temáticas, niveles y propósitos, con el objetivo de enriquecer los procesos de formación, otorgar visibilidad y hacer cultura.</p>
+      <p class="about-text">Por los momentos y en esta versión, muestra libros desarrollados por estudiantes de 4to semestre quienes plasmaron en las páginas a referentes personales de distinto tipo y bajo una mirada propia.</p>
+    </div>
+  </div>
+</nav>
+
+<main id="shelf">
+  <div class="header-legend">Los proyectos destacados han sido marcados.</div>
+</main>
+
+<div id="reader">
+  <div id="reader-bar">
+    <div>
+      <div id="reader-title"></div>
+      <div id="reader-sub"></div>
+    </div>
+    <button id="reader-close" aria-label="Close reader">×</button>
+  </div>
+  <div id="reader-info"></div>
+  <div id="reader-stage-wrap">
+    <div id="reader-stage">
+      <div id="page-flip-book"></div>
+      <div id="reader-loading">Loading…</div>
+    </div>
+  </div>
+  <button id="reader-tap-next" class="reader-tap-zone" aria-label="Next page (tap zone)"></button>
+  <button id="reader-tap-prev" class="reader-tap-zone" aria-label="Previous page (tap zone)"></button>
+  <div id="reader-nav-hint-next" class="reader-nav-hint" aria-hidden="true">›</div>
+  <div id="reader-nav-hint-prev" class="reader-nav-hint" aria-hidden="true">‹</div>
+  <div id="reader-controls">
+    <button id="ctrl-prev" aria-label="Previous page">‹ prev</button>
+    <span id="page-indicator">— / —</span>
+    <button id="ctrl-next" aria-label="Next page">next ›</button>
+  </div>
+</div>
+
+<script src="assets/vendor/pdf.min.js"></script>
+<script src="assets/vendor/page-flip.js"></script>
+<script>
+  // header height varies with viewport width (the title wraps onto 2-3 lines on
+  // narrow screens), so #toc's top offset is measured live rather than a fixed
+  // px guess that only matched a single-line title
+  const headerTitleEl = document.querySelector('.header-title');
+  function syncTocTop(){
+    document.documentElement.style.setProperty('--toc-top', (headerTitleEl.getBoundingClientRect().bottom + 14) + 'px');
+  }
+  syncTocTop();
+  window.addEventListener('resize', syncTocTop);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncTocTop);
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'assets/vendor/pdf.worker.min.js';
+
+  // busts the browser's asset cache on every load, so freshly-uploaded files always show immediately
+  const CACHE_BUST = Date.now();
+  const withV = url => `${url}?v=${CACHE_BUST}`;
+
+  /* =========================================================
+     BOOK DATA
+     Replace spine / cover / pdf paths with real files as you
+     get them. SVG or PNG both work for spine/cover. Each
+     "pages" value is just a hint for the loading label; it is
+     not required to be exact — the reader detects real page
+     count from the PDF itself.
+     ========================================================= */
+  // integer hash (not a linear formula) so size variance doesn't correlate with shelf position
+  function hash(x){
+    x = Math.imul(x ^ (x >>> 16), 2654435761);
+    x = Math.imul(x ^ (x >>> 13), 2246822519);
+    return (x ^ (x >>> 16)) >>> 0;
+  }
+
+  // widths tuned to match each real spine image's own aspect ratio — heights still
+  // come from the hash formula below. Add an entry here whenever a new real spine
+  // is uploaded, or object-fit:cover will crop it against a mismatched box.
+  const REAL_SPINE_WIDTH = { 2: 22, 3: 36, 4: 66, 5: 64, 7: 35, 8: 51, 9: 44, 10: 36, 11: 75, 12: 38, 13: 38, 14: 73, 15: 62, 16: 69, 17: 39, 18: 47, 19: 64, 21: 34, 22: 30, 23: 26, 24: 50, 25: 60, 26: 22, 29: 44, 30: 31, 31: 37, 32: 53 };
+
+  // real student names as they're confirmed, keyed by numeric id — extend this as
+  // later batches come in; ids left out still fall back to the "Untitled NN" / "Student
+  // Name NN" placeholders below, and the table of contents (TOC_IDS, near the shelf
+  // render code) only lists ids that have a real name here.
+  // NOTE (2026-08-19): id 3 was originally mislabeled 'Ana Marcos' — the first name
+  // batch omitted Valeria Cheng, so every name from 3 onward was off by one. The
+  // physical spine/cover/pdf files were never touched (they were always correctly
+  // uploaded in true project order); only the name labels below were shifted +1 to
+  // realign them with id 3 now correctly belonging to Valeria Cheng.
+  const REAL_NAMES = {
+    2: 'Gabriela Mendes', 3: 'Valeria Cheng', 4: 'Ana Marcos', 5: 'Ana Isabella',
+    6: 'Veronica Castro', 7: 'Carlos Cedeño', 8: 'Madelaine Chavez', 9: 'Albany Alayon',
+    10: 'Roriana Flores', 11: 'Andrea Triana', 12: 'Ashley Chirinos', 13: 'Fabiana Rios',
+    14: 'Claudia Arellano', 15: 'Sofia Araujo', 16: 'Valeria Canella', 17: 'Estefany Gois',
+    18: 'Luis Madriz', 19: 'Simon Salazar', 20: 'Lucyana Reyes', 21: 'Alexandra Galindo',
+    22: 'Andrea Tabernero', 23: 'Luis Maciel', 24: 'Valeria Berris', 25: 'Camila Baez',
+    26: 'Juan España', 27: 'Dana Vargas', 28: 'Victoria Paris', 29: 'Fabiola Reyes',
+    30: 'Camila Perez', 31: 'Isabella Prieto', 32: 'Jesus Hernandez'
+  };
+
+  // referentes (artists/mentors) mentioned per id, keyed the same way as REAL_NAMES.
+  // Each book can mention several referentes, and the same referente can be mentioned
+  // by more than one book (e.g. 'Virgil Abloh' below, ids 6 and 7) — that's why this
+  // maps to an array rather than a single string. Ids left out fall back to
+  // ['Sin asignar'] below (e.g. id 10 — pdf still uploading, referente list pending).
+  const REAL_REFERENTES = {
+    1: ['Milo J', 'ei.stdio', 'Hush Puppy'],
+    2: ['Michael Jackson', 'Selena Quintanilla', 'Neville Brody'],
+    3: ['Marcelo Rubio', 'ROBI', 'Michael Boeg', 'dmnk.visuals'],
+    4: ['Rosalía', 'Andreams', 'Malos Hábitos'],
+    5: ['Petra Collins', 'Olivia Rodrigo', 'Charli XX'],
+    6: ['David Carson', 'Virgil Abloh', 'Rauw Alejandro'],
+    7: ['Virgil Abloh', 'Akira Nakai', 'Travis Scott'],
+    8: ['Andy Warhol', 'Harry Styles', 'April Greiman'],
+    9: ['Harry Styles', 'Conan Gray', 'Zipeng Zhu'],
+    11: ['Jungkook', 'Lana del Rey', 'BetaHaus'],
+    12: ['Orilu', 'Michi Paredes', 'Olivia Rodrigo'],
+    13: ['Rawayana', 'Katrina Romulo', 'Jessica Judith'],
+    14: ['Don Toliver', 'South Park', 'Danilop'],
+    15: ['Rupaul', 'FKA Twigs', 'Guillaume Sbalchiero'],
+    16: ['Salvador Canella', 'Willo Perron', 'Drake'],
+    17: ['Simon Jacquemus', 'Bad Bunny', 'Hunter Schafer'],
+    18: ['Coldplay', 'Chris Ashworth', 'Johnny Deep'],
+    19: ['Lamine Yamal', 'Ado', 'Edgar Villanueva'],
+    20: ['Estilito Díaz Aponte'],
+    21: ['Hayao Miyazaki', 'Nathan Fowkes', 'Hora de Aventura', 'Steven Universe'],
+    22: ['Lana del Rey', 'Quentin Tarantino', 'Saul Bass'],
+    23: ['BetaHaus', 'Kim Taehyung', 'Sonic Universe'],
+    24: ['Tini', 'Se Regalan Dudas', 'Nubikini'],
+    25: ['Sofia Coppola', 'Basquiat', 'Green Day'],
+    26: ['Oscar Olivares', 'Lady Diana', 'Cruz Diez'],
+    27: ['Tibor Kalman', 'Shakira', 'Winona Ryder'],
+    28: ['Jessica Walsh', 'Ilka & Franz', 'ABBA'],
+    29: ['Camila Risquez', 'Bad Bunny', 'Snoopy'],
+    30: ['Sojun Hee', 'Yoshiaki Fujisawa', 'Haruko Ichikawa'],
+    31: ['Wes Anderson', 'Eiko Ishioka', 'The Beatles'],
+    32: ['Gabriel Guzmán', 'Eminem', 'Thrasher Magazine']
+  };
+  const DEFAULT_REFERENTE = 'Sin asignar';
+
+  // per-id crop anchor override for spine images whose important content (text,
+  // signature) sits away from the top — default crop anchor is 'top' everywhere else
+  const SPINE_POSITION = { 6: 'bottom' };
+
+  // a scattered few spines lean a couple degrees off-vertical, like books that were
+  // never quite squared up — most books stay upright (0/omitted, via CSS's --tilt fallback)
+  const TILT = { 6: 6, 10: -3, 20: -6, 29: -2 };
+
+  const BOOKS = [
+    {
+      id: '01',
+      title: 'Oriana Gago',
+      student: 'Oriana Gago',
+      referentes: REAL_REFERENTES[1] || [DEFAULT_REFERENTE],
+      program: 'BFA Photography, Year 3',
+      year: '2026',
+      description: 'One or two lines describing the project, its concept, or the brief it responds to.',
+      spine: 'assets/spines/01.png',
+      cover: 'assets/covers/01.png',
+      pdf: 'assets/pdfs/01.pdf',
+      spineWidth: 36,
+      spineHeight: 236,
+      // marks this as one of the best books — shows a thin line + dot above its spine
+      featured: true,
+      // mobile reader only — see the readerInfoLayout comment in the generated-books loop below
+      readerInfoLayout: 'side'
+    },
+    ...Array.from({length: 34}, (_, i) => {
+      const n = i + 2;
+      const idx = String(n).padStart(2, '0');
+      return {
+        id: idx,
+        title: REAL_NAMES[n] || `Untitled ${idx}`,
+        student: REAL_NAMES[n] || `Student Name ${idx}`,
+        referentes: REAL_REFERENTES[n] || [DEFAULT_REFERENTE],
+        program: 'BFA Photography, Year 3',
+        year: '2026',
+        description: 'One or two lines describing the project, its concept, or the brief it responds to.',
+        spine: `assets/spines/${idx}.png`,
+        cover: `assets/covers/${idx}.png`,
+        // the reader tries this real file first and falls back to sample.pdf on load failure
+        pdf: `assets/pdfs/${idx}.pdf`,
+        // slight variance so the shelf doesn't look uniform — tweak freely per book
+        // a handful of extra-skinny and extra-wide volumes mixed into the normal spread
+        spineWidth: n in REAL_SPINE_WIDTH ? REAL_SPINE_WIDTH[n]
+          : n === 6 ? 24
+          : n === 20 ? 24
+          : [27, 34].includes(n) ? 16
+          : n === 4 ? 66
+          : 34 + (hash(n) % 5) * 6,
+        spineHeight: n === 2 ? 250 : 220 + (hash(n + 1000) % 7) * 10,
+        spinePosition: SPINE_POSITION[n] || 'top',
+        tilt: TILT[n] || 0,
+        // this book's PDF is laid out as individual single pages throughout, not
+        // pre-composited two-page spreads — see buildLeaves() for how this changes leaf splitting
+        ...([4, 14, 24, 25].includes(n) ? { pageMode: 'singles' } : {}),
+        // marks this as one of the best books — shows a thin line + dot above its spine
+        ...([10, 11, 15, 20, 21, 22, 27, 28].includes(n) ? { featured: true } : {}),
+        // shifts the marker sideways to stay above the visually tilted spine top
+        // (the marker itself doesn't rotate with the book) — tune per tilted book as needed
+        ...(n === 20 ? { markerOffset: -25 } : {}),
+        // slightly shorter marker line, per user request
+        ...(n === 15 ? { markerHeight: 34 } : {}),
+        // page 1 of this PDF is a full print wrap (back cover | spine | front cover) rather
+        // than a lone front cover, and its last page is an ordinary interior spread rather
+        // than a dedicated backside — see buildLeaves()'s coverWrap branch
+        ...(n === 16 ? { coverWrap: 'right' } : {}),
+        // mobile reader only: where the rotated #reader-info block sits — 'side' along
+        // the left edge (for books whose rotated spreads run closer to the full screen
+        // width) vs the default 'bottom' (for books with more headroom above/below)
+        ...([1, 2, 4, 5, 7, 11, 12, 13, 14, 16, 17, 20, 23, 24, 29, 30, 31, 32].includes(n) ? { readerInfoLayout: 'side' } : {})
+      };
+    })
+  ];
+
+  // scales every book's box uniformly, preserving each spine's own aspect ratio
+  const SCALE = 1.15;
+  BOOKS.forEach(b => {
+    b.spineWidth = Math.round(b.spineWidth * SCALE);
+    b.spineHeight = Math.round(b.spineHeight * SCALE);
+  });
+
+  /* ---------------- shelf size control ---------------- */
+  // scales the whole shelf uniformly on top of each book's own baked-in SCALE,
+  // anchored to the bottom edge (transform-origin:bottom center) so it grows/shrinks
+  // in place rather than drifting off the bottom-flush position
+  const sizeSlider = document.getElementById('size-slider');
+  const sizeValue = document.getElementById('size-value');
+  sizeSlider.addEventListener('input', () => {
+    const scale = Number(sizeSlider.value);
+    shelf.style.transform = `scale(${scale})`;
+    sizeValue.textContent = `${Math.round(scale * 100)}%`;
+  });
+
+  /* ---------------- render shelf ---------------- */
+  const shelf = document.getElementById('shelf');
+  // last 3 books (ids 33-35, still placeholders) hidden from the shelf for now — still in BOOKS, just not rendered
+  const VISIBLE_BOOKS = BOOKS.slice(0, -3);
+  document.getElementById('book-count').textContent = `${VISIBLE_BOOKS.length} libros.`;
+
+  /* ---------------- table of contents ---------------- */
+  // ids are split into a fixed number of columns in shelf order (column size grows/
+  // shrinks with the filtered count so it always lands on STUDENT_TOC_COLUMNS
+  // columns); clicking an entry jumps straight into that book's reader, skipping
+  // the spine/cover steps. The list is rebuilt by renderTocList() whenever the
+  // referente filter changes.
+  const STUDENT_TOC_COLUMNS_DESKTOP = 4;
+  const STUDENT_TOC_COLUMNS_MOBILE = 2;
+  const mobileMql = window.matchMedia('(max-width:600px)');
+  function studentColumnCount(){ return mobileMql.matches ? STUDENT_TOC_COLUMNS_MOBILE : STUDENT_TOC_COLUMNS_DESKTOP; }
+  const REFERENTE_COLUMN_SIZE_DESKTOP = 9;
+  const REFERENTE_COLUMN_SIZE_MOBILE = 12;
+  function referenteColumnSize(){ return mobileMql.matches ? REFERENTE_COLUMN_SIZE_MOBILE : REFERENTE_COLUMN_SIZE_DESKTOP; }
+  const tocPanel = document.getElementById('toc-panel');
+  const tocColumns = document.getElementById('toc-columns');
+  let activeReferente = null;
+  let tocOpen = false;
+
+  function renderTocList() {
+    tocColumns.innerHTML = '';
+    const filtered = activeReferente
+      ? VISIBLE_BOOKS.filter(b => b.referentes.includes(activeReferente))
+      : VISIBLE_BOOKS;
+    const columnSize = Math.ceil(filtered.length / studentColumnCount()) || 1;
+    for (let i = 0; i < filtered.length; i += columnSize) {
+      const ul = document.createElement('ul');
+      ul.className = 'toc-list';
+      filtered.slice(i, i + columnSize).forEach(book => {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.append(book.student);
+        if (book.featured) {
+          const dot = document.createElement('span');
+          dot.className = 'student-marker-dot';
+          btn.appendChild(dot);
+        }
+        btn.dataset.referentes = JSON.stringify(book.referentes); // read by referente hover below
+        btn.addEventListener('click', e => {
+          // the shelf's own click-outside-closes listener would otherwise fire on
+          // this same click and immediately undo the openBook() below, since this
+          // button lives outside the spine button it's opening
+          e.stopPropagation();
+          const spineBtn = bookButtons.get(book.id);
+          if (spineBtn) openBook(book, spineBtn);
+        });
+        li.appendChild(btn);
+        ul.appendChild(li);
+      });
+      tocColumns.appendChild(ul);
+    }
+    // panel is already open with a fixed max-height — resync it to the new content size
+    if (tocOpen) tocPanel.style.maxHeight = tocPanel.scrollHeight + 'px';
+  }
+  renderTocList();
+  // re-chunk into the mobile/desktop column count whenever the viewport crosses the breakpoint
+  mobileMql.addEventListener('change', renderTocList);
+
+  const tocToggle = document.getElementById('toc-toggle');
+  const tocToggleIcon = document.getElementById('toc-toggle-icon');
+  let tocRevealTimer = null;
+
+  // desktop only (see the .legend-hidden-both-open CSS rule) — with both name
+  // lists open at once their combined height can cover the shelf legend text,
+  // so it hides while both are open and reappears as soon as either closes
+  const headerLegendEl = document.querySelector('.header-legend');
+  function syncHeaderLegendVisibility(){
+    headerLegendEl.classList.toggle('legend-hidden-both-open', tocOpen && referenteOpen);
+  }
+
+  function closeToc() {
+    if (!tocOpen) return;
+    tocOpen = false;
+    tocToggle.setAttribute('aria-expanded', false);
+    tocToggleIcon.textContent = '[+]';
+    tocPanel.classList.remove('open');
+    clearTimeout(tocRevealTimer);
+    tocPanel.style.maxHeight = '0px';
+    closeBook();
+    syncHeaderLegendVisibility();
+  }
+
+  function openToc() {
+    if (tocOpen) return;
+    closeAbout();
+    tocOpen = true;
+    tocToggle.setAttribute('aria-expanded', true);
+    tocToggleIcon.textContent = '[–]';
+    tocPanel.classList.add('open');
+    clearTimeout(tocRevealTimer);
+    // icon flips first, then — after a brief beat — the panel (names + referente filter) unrolls top to bottom
+    tocRevealTimer = setTimeout(() => {
+      tocPanel.style.maxHeight = tocPanel.scrollHeight + 'px';
+    }, 180);
+    syncHeaderLegendVisibility();
+  }
+
+  tocToggle.addEventListener('click', () => {
+    if (tocOpen) closeToc(); else openToc();
+  });
+
+  /* ---------------- referente filter (secondary menu) ---------------- */
+  const REFERENTES = [...new Set(VISIBLE_BOOKS.flatMap(b => b.referentes))].sort((a, b) => a.localeCompare(b, 'es'));
+  const referenteToggle = document.getElementById('referente-toggle');
+  const referenteToggleIcon = document.getElementById('referente-toggle-icon');
+  const referenteColumns = document.getElementById('referente-columns');
+  let referenteOpen = false;
+  let referenteRevealTimer = null;
+
+  function renderReferenteColumns() {
+    referenteColumns.innerHTML = '';
+    // fixed names-per-column grid — 9 on desktop, 12 on mobile (mobile scrolls
+    // horizontally to reach columns past the screen edge, rather than trying to
+    // fit everything into a couple of very tall columns)
+    const chunks = [];
+    const columnSize = referenteColumnSize();
+    for (let i = 0; i < REFERENTES.length; i += columnSize) chunks.push(REFERENTES.slice(i, i + columnSize));
+
+    chunks.forEach(chunk => {
+      const ul = document.createElement('ul');
+      ul.className = 'toc-list';
+      chunk.forEach(name => {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.textContent = name;
+        btn.dataset.name = name; // filtering/active-state key
+        btn.classList.toggle('active', name === activeReferente);
+        btn.addEventListener('click', e => {
+          // the shelf's own click-outside-closes-book listener would otherwise fire
+          // on this same click and immediately undo the openBook() below, since this
+          // button lives outside the spine button it's opening (same reason the
+          // estudiante name buttons stop propagation too)
+          e.stopPropagation();
+          activeReferente = activeReferente === name ? null : name;
+          referenteColumns.querySelectorAll('button').forEach(b => {
+            b.classList.toggle('active', b.dataset.name === activeReferente);
+          });
+          renderTocList();
+          if (activeReferente) {
+            // reveal the correlated name(s) in the estudiante menu, in case it's closed
+            openToc();
+            // only jump straight to the book when the referente points to just one —
+            // otherwise leave it to the user to pick the right student from the list
+            const matches = VISIBLE_BOOKS.filter(b => b.referentes.includes(activeReferente));
+            if (matches.length === 1) {
+              const spineBtn = bookButtons.get(matches[0].id);
+              if (spineBtn) openBook(matches[0], spineBtn);
+            }
+          } else if (mobileMql.matches) {
+            // deactivating the filter reverts the estudiante list to all 32 names —
+            // on mobile that's a menu the user never asked to see, so close it back up
+            // rather than leaving it open full-length (desktop keeps it open, unchanged)
+            closeToc();
+          }
+        });
+        // preview which students mention this referente before actually filtering by it
+        btn.addEventListener('mouseenter', () => {
+          tocColumns.querySelectorAll('button').forEach(sBtn => {
+            const related = JSON.parse(sBtn.dataset.referentes).includes(name);
+            sBtn.style.opacity = related ? '1' : '0.25';
+          });
+        });
+        btn.addEventListener('mouseleave', () => {
+          tocColumns.querySelectorAll('button').forEach(sBtn => { sBtn.style.opacity = ''; });
+        });
+        li.appendChild(btn);
+        ul.appendChild(li);
+      });
+      referenteColumns.appendChild(ul);
+    });
+    // panel is already open with a fixed max-height — resync it to the new content size
+    if (referenteOpen) referenteColumns.style.maxHeight = referenteColumns.scrollHeight + 'px';
+  }
+  renderReferenteColumns();
+  mobileMql.addEventListener('change', renderReferenteColumns);
+
+  function closeReferente() {
+    if (!referenteOpen) return;
+    referenteOpen = false;
+    referenteToggle.setAttribute('aria-expanded', false);
+    referenteToggleIcon.textContent = '[+]';
+    referenteColumns.classList.remove('open');
+    clearTimeout(referenteRevealTimer);
+    referenteColumns.style.maxHeight = '0px';
+    if (activeReferente) {
+      activeReferente = null;
+      referenteColumns.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      renderTocList();
+    }
+    closeBook();
+    syncHeaderLegendVisibility();
+  }
+
+  referenteToggle.addEventListener('click', () => {
+    if (referenteOpen) { closeReferente(); return; }
+    closeAbout();
+    // on mobile, referente-columns opening on top of an already-open estudiante
+    // list has nowhere to go but overlap it — close estudiante first there;
+    // desktop has room for both open at once, kept as-is
+    if (mobileMql.matches) closeToc();
+    referenteOpen = true;
+    referenteToggle.setAttribute('aria-expanded', true);
+    referenteToggleIcon.textContent = '[–]';
+    referenteColumns.classList.add('open');
+    clearTimeout(referenteRevealTimer);
+    referenteRevealTimer = setTimeout(() => {
+      referenteColumns.style.maxHeight = referenteColumns.scrollHeight + 'px';
+    }, 180);
+    syncHeaderLegendVisibility();
+  });
+
+  /* ---------------- about (tertiary menu) ---------------- */
+  const aboutToggle = document.getElementById('about-toggle');
+  const aboutToggleIcon = document.getElementById('about-toggle-icon');
+  const aboutPanel = document.getElementById('about-panel');
+  let aboutOpen = false;
+  let aboutRevealTimer = null;
+
+  function closeAbout() {
+    if (!aboutOpen) return;
+    aboutOpen = false;
+    aboutToggle.setAttribute('aria-expanded', false);
+    aboutToggleIcon.textContent = '[+]';
+    clearTimeout(aboutRevealTimer);
+    aboutPanel.style.maxHeight = '0px';
+  }
+
+  aboutToggle.addEventListener('click', () => {
+    const opening = !aboutOpen;
+    if (opening) { closeToc(); closeReferente(); }
+    aboutOpen = opening;
+    aboutToggle.setAttribute('aria-expanded', aboutOpen);
+    aboutToggleIcon.textContent = aboutOpen ? '[–]' : '[+]';
+    clearTimeout(aboutRevealTimer);
+    if (aboutOpen) {
+      aboutRevealTimer = setTimeout(() => {
+        aboutPanel.style.maxHeight = aboutPanel.scrollHeight + 'px';
+      }, 180);
+    } else {
+      aboutPanel.style.maxHeight = '0px';
+    }
+  });
+
+
+  const ROWS = 1; // how many rows to distribute books across
+  const perRow = Math.ceil(VISIBLE_BOOKS.length / ROWS);
+  // lets the "Buscar por Estudiante" list reuse each book's own shelf button —
+  // openBook() already knows how to scroll it into view before expanding
+  const bookButtons = new Map();
+
+  for (let r = 0; r < ROWS; r++){
+    const row = document.createElement('div');
+    row.className = 'shelf-row';
+    const rowBooks = VISIBLE_BOOKS.slice(r * perRow, (r + 1) * perRow);
+    rowBooks.forEach(book => {
+      const btn = document.createElement('button');
+      btn.className = 'book';
+      bookButtons.set(book.id, btn);
+      btn.style.width = book.spineWidth + 'px';
+      btn.style.height = book.spineHeight + 'px';
+      btn.dataset.spineWidth = book.spineWidth;
+
+      const slot = document.createElement('div');
+      slot.className = 'book-slot';
+
+      if (book.tilt) {
+        btn.style.setProperty('--tilt', `${book.tilt}deg`);
+        // the box pivots at bottom center, so its top edge drifts sideways by
+        // height * sin(angle) — reserve the full drift as margin on the side it
+        // leans toward (width's own contribution to the drift is negligible at
+        // these angles), or it overlaps the neighbor on tall/narrow real spine art
+        const rad = Math.abs(book.tilt) * (Math.PI / 180);
+        const drift = book.spineHeight * Math.sin(rad);
+        if (book.tilt > 0) slot.style.marginRight = drift + 'px';
+        else slot.style.marginLeft = drift + 'px';
+      }
+      btn.setAttribute('aria-label', `${book.title} — view cover`);
+
+      const spineLayer = document.createElement('span');
+      spineLayer.className = 'spine-layer';
+      const spineImg = document.createElement('img');
+      spineImg.src = withV(book.spine);
+      spineImg.alt = '';
+      spineImg.style.objectPosition = book.spinePosition || 'top';
+      spineImg.onerror = () => {
+        spineImg.remove();
+        const fallback = document.createElement('span');
+        fallback.className = 'spine-fallback';
+        fallback.textContent = book.title;
+        spineLayer.appendChild(fallback);
+      };
+      spineLayer.appendChild(spineImg);
+      btn.appendChild(spineLayer);
+
+      const coverLayer = document.createElement('span');
+      coverLayer.className = 'cover-layer';
+      const coverImg = document.createElement('img');
+      coverImg.src = withV(book.cover);
+      coverImg.alt = book.title;
+      coverLayer.appendChild(coverImg);
+      btn.appendChild(coverLayer);
+
+      const closeEl = document.createElement('span');
+      closeEl.className = 'book-close';
+      closeEl.setAttribute('role', 'button');
+      closeEl.setAttribute('aria-label', 'Close');
+      closeEl.textContent = '×';
+      closeEl.addEventListener('click', e => { e.stopPropagation(); closeBook(); });
+      btn.appendChild(closeEl);
+
+      btn.addEventListener('click', () => {
+        if (current === btn) openReader(book);
+        else openBook(book, btn);
+      });
+      slot.appendChild(btn);
+
+      if (book.featured) {
+        const marker = document.createElement('span');
+        marker.className = 'book-marker';
+        if (book.markerOffset) marker.style.transform = `translateX(calc(-50% + ${book.markerOffset}px))`;
+        if (book.markerHeight) marker.style.height = book.markerHeight + 'px';
+        slot.appendChild(marker);
+      }
+
+      row.appendChild(slot);
+    });
+    shelf.appendChild(row);
+  }
+
+  /* ---------------- phase 1: inline grow ---------------- */
+  const aspectCache = new Map();
+  let current = null;
+  let currentBook = null;
+
+  function openBook(book, btn) {
+    if (current && current !== btn) {
+      current.style.width = current.dataset.spineWidth + 'px';
+      current.classList.remove('open');
+    }
+    current = btn;
+    currentBook = book;
+    const doOpen = w => {
+      const row = btn.closest('.shelf-row');
+      const currentWidth = parseFloat(btn.dataset.spineWidth);
+      const widthGain = w - currentWidth;
+      const reveal = spacer => {
+        // this fires after an async scroll-settle (or image load, for the very
+        // first open of a book) — if a different book was opened in the
+        // meantime, `current` has already moved on, so this call is stale and
+        // must not re-open a book the user isn't looking at anymore
+        if (current !== btn) { if (spacer) spacer.remove(); return; }
+        btn.style.width = w + 'px';
+        btn.classList.add('open');
+        if (!spacer) return;
+        // shrink the spacer in lockstep with the book's own width transition
+        // (same duration/easing) so the row's total content width — and thus
+        // the scroll position we just settled on — never dips mid-transition
+        spacer.style.width = '0px';
+        spacer.addEventListener('transitionend', () => spacer.remove(), { once: true });
+      };
+      if (!row || widthGain <= 0) { reveal(null); return; }
+      // scroll so the book's FUTURE (expanded) width will be fully in view,
+      // before it actually expands — reveal only happens once scrolling settles.
+      // The row can't yet scroll that far (the content isn't wide enough until
+      // the book actually grows), so a same-size invisible spacer reserves the
+      // room first.
+      const btnLeft = btn.getBoundingClientRect().left - row.getBoundingClientRect().left + row.scrollLeft;
+      let target = row.scrollLeft;
+      if (row.scrollLeft > btnLeft) target = btnLeft;
+      else if (row.scrollLeft + row.clientWidth < btnLeft + w) target = btnLeft + w - row.clientWidth;
+      target = Math.max(0, Math.min(row.scrollWidth + widthGain - row.clientWidth, target));
+      if (Math.abs(target - row.scrollLeft) < 1) { reveal(null); return; }
+
+      const spacer = document.createElement('span');
+      spacer.style.cssText = `display:inline-block; flex-shrink:0; width:${widthGain}px; transition:width .35s ease;`;
+      btn.parentElement.after(spacer);
+
+      let settled = false;
+      const onSettle = () => {
+        if (settled) return;
+        settled = true;
+        row.removeEventListener('scrollend', onSettle);
+        reveal(spacer);
+      };
+      row.addEventListener('scrollend', onSettle);
+      row.scrollTo({ left: target, behavior: 'smooth' });
+      setTimeout(onSettle, 500); // fallback where 'scrollend' isn't supported
+    };
+    if (aspectCache.has(book.id)) {
+      doOpen(aspectCache.get(book.id));
+    } else {
+      const probe = new Image();
+      probe.onload = () => {
+        const w = Math.round(book.spineHeight * (probe.naturalWidth / probe.naturalHeight));
+        aspectCache.set(book.id, w);
+        doOpen(w);
+      };
+      probe.onerror = () => { aspectCache.set(book.id, book.spineWidth * 2); doOpen(book.spineWidth * 2); };
+      probe.src = withV(book.cover);
+    }
+  }
+
+  function closeBook() {
+    if (!current) return;
+    current.style.width = current.dataset.spineWidth + 'px';
+    current.classList.remove('open');
+    current = null;
+    currentBook = null;
+  }
+
+  document.addEventListener('click', e => {
+    if (!current) return;
+    if (!current.contains(e.target)) closeBook();
+  });
+
+  /* ---------------- phase 2: reader ---------------- */
+  const reader = document.getElementById('reader');
+  const readerTitle = document.getElementById('reader-title');
+  const readerSub = document.getElementById('reader-sub');
+  const readerInfo = document.getElementById('reader-info');
+  const pageFlipBook = document.getElementById('page-flip-book');
+  const pageIndicator = document.getElementById('page-indicator');
+  const readerLoading = document.getElementById('reader-loading');
+  const ctrlPrev = document.getElementById('ctrl-prev');
+  const ctrlNext = document.getElementById('ctrl-next');
+
+  let pdfDoc = null;
+  let pageFlipInstance = null; // one St.PageFlip instance per open book
+
+  // renders one raw PDF page to a canvas (unscaled — cropHalf/toDataURL happen on top)
+  async function renderPageCanvas(num){
+    const page = await pdfDoc.getPage(num);
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    return canvas;
+  }
+
+  // slices a rendered page canvas into its left or right physical leaf
+  function cropHalf(canvas, side){
+    const half = document.createElement('canvas');
+    half.width = canvas.width / 2;
+    half.height = canvas.height;
+    const ctx = half.getContext('2d');
+    const sx = side === 'left' ? 0 : canvas.width / 2;
+    ctx.drawImage(canvas, sx, 0, canvas.width / 2, canvas.height, 0, 0, half.width, half.height);
+    return half.toDataURL('image/jpeg', 0.85);
+  }
+
+  // builds the ordered array of leaf images St.PageFlip expects, plus the pixel
+  // dimensions of a single leaf (every leaf in a well-formed book shares the same
+  // dimensions — crop halves are always exactly half of an interior spread's width,
+  // matching the cover/backside's own single-page width). Page 1 and the last page
+  // are always single leaves (cover/backside). Interior pages are pre-composited
+  // two-page spreads that get split into left+right leaves, unless book.pageMode
+  // === 'singles' (its PDF is already laid out as individual single pages
+  // throughout), in which case each interior page is pushed as one leaf.
+  //
+  // book.coverWrap handles a different export mistake: page 1 isn't a lone front
+  // cover, it's a full print wrap (back cover | spine | front cover) at the same
+  // width as an interior spread, and the PDF has no separate dedicated backside —
+  // its last page is just an ordinary interior spread. coverWrap names which half
+  // of page 1 is the front cover ('left' or 'right'); that half becomes the opening
+  // leaf, the other half (the true back cover) is saved and appended as the closing
+  // leaf, and the last page is left to fall through to normal interior cropping.
+  async function buildLeaves(book, rawNumPages){
+    const leaves = [];
+    let leafWidth = null, leafHeight = null;
+    let backCoverLeaf = null;
+    for (let n = 1; n <= rawNumPages; n++){
+      readerLoading.textContent = `Cargando página [ ${n} / ${rawNumPages} ]…`;
+      const canvas = await renderPageCanvas(n);
+      if (n === 1 && book.coverWrap){
+        const frontSide = book.coverWrap === 'left' ? 'left' : 'right';
+        const backSide = frontSide === 'left' ? 'right' : 'left';
+        leaves.push(cropHalf(canvas, frontSide));
+        backCoverLeaf = cropHalf(canvas, backSide);
+        if (leafWidth == null){ leafWidth = canvas.width / 2; leafHeight = canvas.height; }
+        continue;
+      }
+      const isCoverOrBack = n === 1 || (n === rawNumPages && !book.coverWrap);
+      if (!isCoverOrBack && book.pageMode !== 'singles'){
+        leaves.push(cropHalf(canvas, 'left'));
+        leaves.push(cropHalf(canvas, 'right'));
+        if (leafWidth == null){ leafWidth = canvas.width / 2; leafHeight = canvas.height; }
+      } else {
+        leaves.push(canvas.toDataURL('image/jpeg', 0.85));
+        if (leafWidth == null){ leafWidth = canvas.width; leafHeight = canvas.height; }
+      }
+    }
+    if (backCoverLeaf) leaves.push(backCoverLeaf);
+    return { leaves, leafWidth, leafHeight };
+  }
+
+  function updateControls(){
+    if (!pageFlipInstance) return;
+    const cur = pageFlipInstance.getCurrentPageIndex() + 1;
+    const total = pageFlipInstance.getPageCount();
+    pageIndicator.textContent = `${cur} / ${total}`;
+    ctrlPrev.disabled = cur <= 1;
+    ctrlNext.disabled = cur >= total;
+  }
+
+  // #reader-info's height varies with how many referentes a book lists (some
+  // have just one, others several stacked lines) — since it's anchored to a
+  // fixed distance from the screen bottom, a taller info block eats upward into
+  // whatever's above it. This keeps the rotated stage's bottom clearance (and
+  // the down-arrow hint sitting just above the info block) tracking its actual
+  // current height, rather than a fixed guess that a book with even more
+  // referentes than today's tallest could still collide with.
+  function syncReaderMobileLayout(){
+    if (!mobileMql.matches) return;
+    // "side" layout books don't have #reader-info sitting at the bottom at all —
+    // its rotated, row-turned-vertical shape there is unrelated to bottom
+    // clearance, and using its height anyway was badly over-shrinking the
+    // stage (down to where St.PageFlip gave up on a two-page spread entirely
+    // and fell back to single-page mode) — those books just get a fixed default.
+    if (readerInfo.classList.contains('reader-info-side')) {
+      document.documentElement.style.setProperty('--reader-bottom-clearance', '90px');
+      // a previous "bottom"-layout book (see below) sets inline left/top to
+      // position itself precisely — inline styles beat any stylesheet rule,
+      // including .reader-info-side's own positioning, so they must be
+      // cleared here or they silently keep controlling this book's position too
+      readerInfo.style.left = '';
+      readerInfo.style.top = '';
+      readerInfo.style.right = '';
+      readerInfo.style.bottom = '';
+      return;
+    }
+    const infoHeight = readerInfo.getBoundingClientRect().height;
+    document.documentElement.style.setProperty('--reader-info-height', infoHeight + 'px');
+    document.documentElement.style.setProperty('--reader-bottom-clearance', (infoHeight + 28) + 'px');
+
+    // Precisely centers + bottom-anchors the rotated block regardless of this
+    // book's own content height (varies with referente count, same as above).
+    // CSS alone can't reliably do this: rotating -90deg around the default
+    // (center) origin keeps that center fixed, but centering the box via
+    // left:50%+translateX(-50%) uses its PRE-rotation width for the -50%
+    // shift, while the VISUAL (post-rotation) width is actually its pre-
+    // rotation HEIGHT — so it drifts off-center by half their difference, and
+    // the same mismatch throws off any bottom-margin math. Measuring the real
+    // pre-rotation box (offsetWidth/Height — transforms don't affect layout
+    // size) and solving for where its center needs to sit sidesteps that
+    // entirely: rotating around the true center can't move the center, so
+    // wherever we place it becomes the exact center of the rotated result too.
+    const marginBottom = 20;
+    const preW = readerInfo.offsetWidth, preH = readerInfo.offsetHeight;
+    const centerX = window.innerWidth / 2;
+    const centerY = window.innerHeight - marginBottom - preW / 2; // post-rotation visual height = preW
+    readerInfo.style.left = (centerX - preW / 2) + 'px';
+    readerInfo.style.top = (centerY - preH / 2) + 'px';
+    readerInfo.style.right = 'auto';
+    readerInfo.style.bottom = 'auto';
+  }
+
+  async function openReader(book){
+    closeBook();
+    readerTitle.textContent = book.title;
+    readerSub.textContent = `${book.student} · ${book.program}`;
+    readerInfo.classList.toggle('reader-info-side', book.readerInfoLayout === 'side');
+    readerInfo.innerHTML = `
+      <div class="reader-info-col">
+        <div class="reader-info-label">[Estudiante]</div>
+        <div class="reader-info-name">${book.student}</div>
+      </div>
+      <div class="reader-info-col">
+        <div class="reader-info-label">[Referentes]</div>
+        ${book.referentes.map(r => `<div class="reader-info-referentes">${r}</div>`).join('')}
+      </div>
+      <div class="reader-info-col">
+        <div class="reader-info-label">[4to Semestre]</div>
+      </div>
+    `;
+    syncReaderMobileLayout();
+    reader.classList.add('open');
+    readerLoading.style.display = 'block';
+    readerLoading.textContent = 'Loading…';
+    pageFlipBook.style.visibility = 'hidden';
+
+    try {
+      pdfDoc = await pdfjsLib.getDocument(withV(book.pdf)).promise;
+    } catch (err) {
+      console.warn(`No real PDF at ${book.pdf}, falling back to sample`, err);
+      try {
+        pdfDoc = await pdfjsLib.getDocument(withV('assets/pdfs/sample.pdf')).promise;
+      } catch (fallbackErr) {
+        readerLoading.textContent = 'Could not load this book’s PDF.';
+        console.error(fallbackErr);
+        return;
+      }
+    }
+
+    const { leaves, leafWidth, leafHeight } = await buildLeaves(book, pdfDoc.numPages);
+
+    if (pageFlipInstance){
+      // PageFlip.clear() unconditionally calls this.ui.clear(), which only exists on
+      // the HTML-loading UI class — the canvas/image UI loadFromImages() uses has no
+      // clear() and this throws, aborting openReader() before it ever builds the new
+      // instance (and leaking the old one's window-level mouse/touch listeners).
+      // getUI().removeHandlers() is the correct, safe way to detach those listeners
+      // for this UI mode; the DOM itself is reset by hand right after.
+      pageFlipInstance.getUI().removeHandlers();
+      pageFlipBook.innerHTML = '';
+    }
+    // width/height set St.PageFlip's per-page aspect ratio — derived from this book's
+    // own real leaf dimensions (see buildLeaves) rather than a fixed guess, so 'stretch'
+    // sizing preserves each PDF's actual proportions instead of squashing every book
+    // into the same box. min/max scale off the same aspect so clamping never distorts it.
+    const aspect = leafHeight / leafWidth;
+    const baseWidth = 420;
+    pageFlipInstance = new St.PageFlip(pageFlipBook, {
+      width: baseWidth,
+      height: Math.round(baseWidth * aspect),
+      size: 'stretch',
+      minWidth: 280,
+      maxWidth: 900,
+      minHeight: Math.round(280 * aspect),
+      maxHeight: Math.round(900 * aspect),
+      showCover: true,
+      // on mobile the rotated stage breaks St.PageFlip's own drag/click hit-testing
+      // (see the #reader-controls comment above) — sometimes a tap still lands on
+      // a "corner" and triggers an unintended flip, so pointer-driven flipping is
+      // disabled there entirely; the visible prev/next buttons (flipNext/flipPrev,
+      // its public API) are the only way to turn pages on mobile. Desktop keeps it.
+      useMouseEvents: !mobileMql.matches,
+      flippingTime: 700,
+      maxShadowOpacity: 0.5
+    });
+    pageFlipInstance.loadFromImages(leaves);
+    pageFlipInstance.on('flip', updateControls);
+
+    pageFlipBook.style.visibility = 'visible';
+    readerLoading.style.display = 'none';
+    updateControls();
+  }
+
+  function closeReader(){
+    reader.classList.remove('open');
+    pdfDoc = null;
+    // openReader() sets this inline style to 'visible' once a book's ready to show.
+    // Left alone, that inline value keeps overriding #reader's inherited
+    // visibility:hidden after close — the PageFlip canvas inside stays visible and
+    // clickable, covering the full viewport (#reader is position:fixed; inset:0)
+    // and silently eating every click meant for the shelf underneath.
+    pageFlipBook.style.visibility = 'hidden';
+  }
+
+  document.getElementById('reader-close').addEventListener('click', closeReader);
+
+  function nextPage(){ if (pageFlipInstance) pageFlipInstance.flipNext(); }
+  function prevPage(){ if (pageFlipInstance) pageFlipInstance.flipPrev(); }
+
+  ctrlNext.addEventListener('click', nextPage);
+  ctrlPrev.addEventListener('click', prevPage);
+
+  document.getElementById('reader-tap-next').addEventListener('click', nextPage);
+  document.getElementById('reader-tap-prev').addEventListener('click', prevPage);
+
+  document.addEventListener('keydown', e => {
+    if (reader.classList.contains('open')){
+      if (e.key === 'Escape') closeReader();
+      if (e.key === 'ArrowRight') nextPage();
+      if (e.key === 'ArrowLeft') prevPage();
+    } else if (current){
+      if (e.key === 'Escape') closeBook();
+    }
+  });
+</script>
+</body>
+</html>
