@@ -1199,9 +1199,22 @@
     const leaves = [];
     let leafWidth = null, leafHeight = null;
     let backCoverLeaf = null;
+
+    // render every page concurrently — order of completion doesn't matter here,
+    // since each result is written into its own slot by page number
+    let rendered = 0;
+    const canvases = await Promise.all(
+      Array.from({ length: rawNumPages }, (_, i) => i + 1).map(n =>
+        renderPageCanvas(n).then(canvas => {
+          rendered++;
+          readerLoading.textContent = `Cargando página [ ${rendered} / ${rawNumPages} ]…`;
+          return canvas;
+        })
+      )
+    );
+
     for (let n = 1; n <= rawNumPages; n++){
-      readerLoading.textContent = `Cargando página [ ${n} / ${rawNumPages} ]…`;
-      const canvas = await renderPageCanvas(n);
+      const canvas = canvases[n - 1];
       if (n === 1 && book.coverWrap){
         const frontSide = book.coverWrap === 'left' ? 'left' : 'right';
         const backSide = frontSide === 'left' ? 'right' : 'left';
