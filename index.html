@@ -362,6 +362,17 @@
        just letting the (already-enabled) horizontal scroll reach the overflow */
     #referente-columns .toc-list{ flex-shrink:0; }
 
+    /* #shelf's own margin-top:auto (base rule) is what pushes it toward the
+       viewport's bottom whenever the page's total content is shorter than
+       100vh — with #toc in normal document flow here (see above) rather than
+       desktop's fixed overlay, that adds an awkward extra gap below whichever
+       menu is open, on top of the open panel's own height. body.any-menu-open
+       (toggled in JS — see syncAnyMenuOpenState) fires while any of the three
+       panels is open, collapsing that margin to a small fixed gap instead so
+       the shelf comes up right under the open menu, leaving more of the
+       (already tall, on top of the open panel) page for the books. */
+    body.any-menu-open #shelf{ margin-top:24px; }
+
     /* the count sitting up in the header (baseline-aligned with a title that
        can itself wrap onto 2 lines here) reads oddly disconnected from the
        shelf it's counting, which can sit much further down the page — swap
@@ -905,6 +916,18 @@
     headerLegendEl.classList.toggle('legend-hidden-both-open', tocOpen && referenteOpen);
   }
 
+  // mobile only (see the .any-menu-open CSS rule) — #shelf's own margin-top:
+  // auto (base rule) pushes it toward the bottom of the viewport whenever the
+  // page's total content is shorter than 100vh; with #toc in normal document
+  // flow on mobile (unlike desktop's fixed overlay), leaving that in place
+  // while a panel's open just adds an awkward extra gap below it, on top of
+  // whatever height the open panel itself already takes up. Toggling this
+  // class lets mobile-only CSS collapse that margin specifically while any
+  // panel's open, bringing the shelf up close under it instead.
+  function syncAnyMenuOpenState(){
+    document.body.classList.toggle('any-menu-open', tocOpen || referenteOpen || aboutOpen);
+  }
+
   function closeToc() {
     if (!tocOpen) return;
     tocOpen = false;
@@ -915,6 +938,7 @@
     tocPanel.style.maxHeight = '0px';
     closeBook();
     syncHeaderLegendVisibility();
+    syncAnyMenuOpenState();
   }
 
   function openToc() {
@@ -930,6 +954,7 @@
       tocPanel.style.maxHeight = tocPanel.scrollHeight + 'px';
     }, 180);
     syncHeaderLegendVisibility();
+    syncAnyMenuOpenState();
   }
 
   tocToggle.addEventListener('click', () => {
@@ -1026,6 +1051,7 @@
     }
     closeBook();
     syncHeaderLegendVisibility();
+    syncAnyMenuOpenState();
   }
 
   referenteToggle.addEventListener('click', () => {
@@ -1044,6 +1070,7 @@
       referenteColumns.style.maxHeight = referenteColumns.scrollHeight + 'px';
     }, 180);
     syncHeaderLegendVisibility();
+    syncAnyMenuOpenState();
   });
 
   /* ---------------- about (tertiary menu) ---------------- */
@@ -1060,6 +1087,7 @@
     aboutToggleIcon.textContent = '[+]';
     clearTimeout(aboutRevealTimer);
     aboutPanel.style.maxHeight = '0px';
+    syncAnyMenuOpenState();
   }
 
   aboutToggle.addEventListener('click', () => {
@@ -1076,6 +1104,7 @@
     } else {
       aboutPanel.style.maxHeight = '0px';
     }
+    syncAnyMenuOpenState();
   });
 
 
