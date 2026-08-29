@@ -361,56 +361,62 @@
        landscape falls through to the plain (unrotated) #reader-stage rule
        above instead of getting rotated a second time on top of that. */
     body.mobile-reader-rotate #reader-stage{
-      /* width becomes the rotated box's HEIGHT — shrunk well below 100vh so the
-         book clears the (unrotated, real) info bar up top and button row below,
+      /* width becomes the rotated box's HEIGHT — a fixed 90px clearance top and
+         bottom for the (unrotated, real) info bar up top and button row below,
          which live outside the stage and don't grow/shrink along with it.
-         #reader-info's height varies with how many referentes a book lists, so
-         --reader-bottom-clearance is computed live (syncReaderMobileLayout) from
-         its actual current height instead of a fixed guess a book with even more
-         referentes could still collide with. */
-      width:calc(100vh - 90px - var(--reader-bottom-clearance, 90px));
+         #reader-info itself is left to overlap the book (z-index:5, above the
+         stage's z-index:3 tap zones) rather than reserving extra room for it —
+         a book with a long referente list used to keep shrinking this box to
+         make space underneath, and shrunk narrow enough it could trip
+         St.PageFlip's own single→double page fallback; usePortrait:false
+         (set on the PageFlip instance in JS) now hard-disables that fallback,
+         but a badly-shrunk box would still just cramp the two-page spread it's
+         forced to keep, so removing the shrink entirely is the real fix. */
+      width:calc(100vh - 180px);
       height:calc(100vw - 64px); max-height:none;
       flex-shrink:0;
-      /* #reader-stage-wrap centers this box, which by itself would split the
-         (now asymmetric) top/bottom clearance evenly — translateY re-biases the
-         rotated result toward the smaller (top) clearance so bottom actually
-         gets its full share. Rotating a non-square box around its own center
-         swaps which edge is which, but a plain screen-space translateY *after*
-         the rotate (transform functions apply right-to-left, so this one runs
-         in the parent's normal, unrotated coordinate space) shifts the already-
-         rotated result by a plain vertical pixel amount, sidestepping that —
-         this bias is purely about top/bottom clearance and doesn't depend on
-         which way the rotate spins, so it's unchanged from before. */
-      transform: translateY(calc((90px - var(--reader-bottom-clearance, 90px)) / 2)) rotate(90deg);
+      /* top/bottom clearance is a fixed, equal 90px now (see above), so
+         #reader-stage-wrap's centering already splits it evenly — no
+         re-biasing translateY needed any more. */
+      transform: rotate(90deg);
     }
 
-    /* large, invisible tap targets covering the top/bottom half of the whole
-       screen — sit BELOW the close button/info bar in z-index (both have
-       z-index:5) so those stay independently tappable at their own spot;
-       everywhere else, a tap flips a page. These replace the prev/next buttons
-       entirely on mobile (#reader-controls stays hidden, its base display:none
-       unoverridden here), which frees up the bottom of the screen for #reader-info. */
+    /* large, invisible tap targets covering the left/right half of the book —
+       children of #reader-stage (not the viewport) so they split ITS box in
+       its own local, pre-rotation coordinates: whatever transform the stage
+       currently has (rotate(90deg) in portrait, none in landscape — see
+       body.mobile-reader-rotate above) carries them along for free, so "right
+       half" always lands on the actual forward-facing page and "left half" on
+       the actual previous page, in both orientations, with no rotation-aware
+       math needed here at all. Sit BELOW the close button/info bar in z-index
+       (both have z-index:5) so those stay independently tappable at their own
+       spot; everywhere else, a tap flips a page. These replace the prev/next
+       buttons entirely on mobile (#reader-controls stays hidden, its base
+       display:none unoverridden here). */
     .reader-tap-zone{
-      display:block; position:absolute; left:0; right:0; z-index:3;
+      display:block; position:absolute; top:0; bottom:0; z-index:3;
     }
-    #reader-tap-next{ top:0; height:50%; }
-    #reader-tap-prev{ top:50%; bottom:0; }
+    #reader-tap-next{ left:50%; right:0; }
+    #reader-tap-prev{ left:0; right:50%; }
 
     /* subtle "you can tap here" hints — the same ‹/› glyphs the old prev/next
-       buttons used, rotated 90deg along with everything else in the rotated
-       reading experience (only while body.mobile-reader-rotate is active — see
-       #reader-stage above): › becomes an upward arrow (top = next/forward),
-       ‹ becomes a downward arrow (bottom = previous/back). Fixed distances from
-       the screen edges (not the PDF stage, whose size varies per book's aspect
-       ratio) so they land consistently just past the close button/info bar;
-       pointer-events:none keeps them purely visual, never blocking a tap. */
+       buttons used, rotated 90deg CLOCKWISE along with the stage (only while
+       body.mobile-reader-rotate is active — see #reader-stage above). Clockwise
+       swings "right" (where › points) down to the BOTTOM of the screen, and
+       "left" (where ‹ points) up to the TOP — the opposite of a counter-
+       clockwise rotation — so › (next/forward) sits near the bottom and
+       ‹ (previous/back) sits near the top; each still ends up pointing further
+       toward the screen edge it's closest to. Fixed distances from the screen
+       edges (not the PDF stage, whose size varies per book's aspect ratio) so
+       they land consistently just past the close button/info bar; pointer-
+       events:none keeps them purely visual, never blocking a tap. */
     .reader-nav-hint{
       display:flex; justify-content:center; position:absolute; left:0; right:0; z-index:2;
       pointer-events:none; color:#999; font-size:20px; line-height:1;
     }
-    #reader-nav-hint-next{ top:64px; }
+    #reader-nav-hint-prev{ top:64px; }
     /* sits just above #reader-info, whatever its current (variable) height is */
-    #reader-nav-hint-prev{ bottom:calc(var(--reader-info-height, 44px) + 20px); }
+    #reader-nav-hint-next{ bottom:calc(var(--reader-info-height, 44px) + 20px); }
     body.mobile-reader-rotate #reader-nav-hint-next{ transform:rotate(90deg); }
     body.mobile-reader-rotate #reader-nav-hint-prev{ transform:rotate(90deg); }
 
@@ -444,11 +450,12 @@
     }
     body.mobile-reader-rotate #reader-info{ transform:rotate(90deg); }
     #reader-info.reader-info-side{
-      /* top:calc(100% - 20px); left:24px below assumes the rotated anchor case
-         (see transform-origin note on the body.mobile-reader-rotate rule) —
-         harmless when unrotated too, since #reader-info's own JS-driven
-         top/left (syncReaderMobileLayout, gated the same way) overrides it
-         whenever it actually applies. */
+      /* top:calc(100% - 20px); left:24px is only the UNROTATED (landscape)
+         fallback — a plain, un-rotated bottom-left position, no different from
+         any other absolutely-positioned box. Once rotated (portrait), inline
+         left/top computed in JS (syncReaderMobileLayout) override these — see
+         the comment there for why a rotated box can't be positioned this
+         simply. */
       top:calc(100% - 20px); bottom:auto; left:24px;
       /* align-items is the pre-rotation row's CROSS axis (vertical) — it's what
          determines the LEFT-margin alignment post-rotation, since rotating swaps
@@ -465,14 +472,16 @@
        bottom-right corner is the one point that stays fixed through the
        rotation, and it becomes the rotated box's visual BOTTOM-left corner
        (rotating 90deg swings width downward-left... precisely, everything else
-       swings around this fixed point) — so positioning that corner directly
-       via top/left (not bottom, which would depend on this book's own content
-       height, since #reader-info's box height varies with how many referentes
-       are listed) reliably anchors the visual result at (left, 100%-20px)
-       regardless of its size. (Was transform-origin:top left + rotate(-90deg)
+       swings around this fixed point). That fixed point ends up on screen at
+       (left + offsetWidth, top + offsetHeight) — offset from the literal
+       top/left values by the box's own pre-rotation size, not sitting at
+       (left, top) directly — which is why syncReaderMobileLayout solves for
+       top/left backward from the desired on-screen position instead of using
+       a plain fixed value. (Was transform-origin:top left + rotate(-90deg)
        before the rotation direction was corrected — flipping the rotate's sign
        alone would have swung this corner to top-right instead, so the origin
-       corner flips too, to keep landing on the same bottom-left spot.) */
+       corner flips too, to keep the same corner — bottom-left — fixed through
+       the rotation.) */
     body.mobile-reader-rotate #reader-info.reader-info-side{
       transform-origin:bottom right; transform:rotate(90deg);
     }
@@ -534,10 +543,10 @@
     <div id="reader-stage">
       <div id="page-flip-book"></div>
       <div id="reader-loading">Loading…</div>
+      <button id="reader-tap-next" class="reader-tap-zone" aria-label="Next page (tap zone)"></button>
+      <button id="reader-tap-prev" class="reader-tap-zone" aria-label="Previous page (tap zone)"></button>
     </div>
   </div>
-  <button id="reader-tap-next" class="reader-tap-zone" aria-label="Next page (tap zone)"></button>
-  <button id="reader-tap-prev" class="reader-tap-zone" aria-label="Previous page (tap zone)"></button>
   <div id="reader-nav-hint-next" class="reader-nav-hint" aria-hidden="true">›</div>
   <div id="reader-nav-hint-prev" class="reader-nav-hint" aria-hidden="true">‹</div>
   <div id="reader-controls">
@@ -1301,12 +1310,11 @@
   }
 
   // #reader-info's height varies with how many referentes a book lists (some
-  // have just one, others several stacked lines) — since it's anchored to a
-  // fixed distance from the screen bottom, a taller info block eats upward into
-  // whatever's above it. This keeps the rotated stage's bottom clearance (and
-  // the down-arrow hint sitting just above the info block) tracking its actual
-  // current height, rather than a fixed guess that a book with even more
-  // referentes than today's tallest could still collide with.
+  // have just one, others several stacked lines). It's left to overlap the
+  // book rather than reserving space for it (#reader-stage no longer shrinks
+  // to make room — see body.mobile-reader-rotate #reader-stage in the CSS),
+  // so this only needs to track that height for the down-arrow hint that
+  // sits just above it, plus the "bottom" layout's own precise centering.
   function syncReaderMobileLayout(){
     // Keyed off the real-orientation rotate class (see updateReaderRotateClass),
     // not mobileMql alone — this math assumes #reader-info is actually rotated,
@@ -1322,25 +1330,30 @@
       return;
     }
     // "side" layout books don't have #reader-info sitting at the bottom at all —
-    // its rotated, row-turned-vertical shape there is unrelated to bottom
-    // clearance, and using its height anyway was badly over-shrinking the
-    // stage (down to where St.PageFlip gave up on a two-page spread entirely
-    // and fell back to single-page mode) — those books just get a fixed default.
+    // its rotated, row-turned-vertical shape sits near the top-right instead,
+    // clear of the book. .reader-info-side's own CSS top/left (top:calc(100% -
+    // 20px); left:24px) only serves the UNROTATED (landscape) fallback above —
+    // once rotated around transform-origin:bottom right, the corner that stays
+    // fixed through the rotate ends up on screen at (left + offsetWidth, top +
+    // offsetHeight), not at the literal left/top values themselves (rotating
+    // around a box's own corner offsets the fixed point by the box's own
+    // pre-rotation size) — so a plain fixed top/left can't reliably land it any
+    // particular distance from the screen edges. Measuring the real pre-
+    // rotation box (offsetWidth/Height) and solving backward for where to place
+    // it lands the *visual*, post-rotation box exactly `rightClearance` from
+    // the screen's right edge and `topClearance` down from its top — both
+    // tunable directly, regardless of how tall this book's referente list is.
     if (readerInfo.classList.contains('reader-info-side')) {
-      document.documentElement.style.setProperty('--reader-bottom-clearance', '90px');
-      // a previous "bottom"-layout book (see below) sets inline left/top to
-      // position itself precisely — inline styles beat any stylesheet rule,
-      // including .reader-info-side's own positioning, so they must be
-      // cleared here or they silently keep controlling this book's position too
-      readerInfo.style.left = '';
-      readerInfo.style.top = '';
-      readerInfo.style.right = '';
-      readerInfo.style.bottom = '';
+      const rightClearance = 24, topClearance = 96;
+      const w = readerInfo.offsetWidth, h = readerInfo.offsetHeight;
+      readerInfo.style.left = (window.innerWidth - rightClearance - h - w) + 'px';
+      readerInfo.style.top = (topClearance - h + w) + 'px';
+      readerInfo.style.right = 'auto';
+      readerInfo.style.bottom = 'auto';
       return;
     }
     const infoHeight = readerInfo.getBoundingClientRect().height;
     document.documentElement.style.setProperty('--reader-info-height', infoHeight + 'px');
-    document.documentElement.style.setProperty('--reader-bottom-clearance', (infoHeight + 28) + 'px');
 
     // Precisely centers + bottom-anchors the rotated block regardless of this
     // book's own content height (varies with referente count, same as above).
@@ -1428,6 +1441,14 @@
       minHeight: Math.round(280 * aspect),
       maxHeight: Math.round(900 * aspect),
       showCover: true,
+      // St.PageFlip's default (true) silently falls back to a single visible
+      // page once its container gets too narrow for a two-page spread — on
+      // mobile that would break the left-half/right-half tap zones' entire
+      // premise (there'd be no separate "forward-facing right page" to tap),
+      // so it's forced off there, floored at 2×minWidth instead. Desktop has
+      // no such tap-zone requirement, so it keeps the library's own default —
+      // a narrow desktop window can still fall back to single-page gracefully.
+      usePortrait: !mobileMql.matches,
       // on mobile the rotated stage breaks St.PageFlip's own drag/click hit-testing
       // (see the #reader-controls comment above) — sometimes a tap still lands on
       // a "corner" and triggers an unintended flip, so pointer-driven flipping is
