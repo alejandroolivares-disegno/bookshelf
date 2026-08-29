@@ -550,68 +550,6 @@
 <script src="assets/vendor/pdf.min.js"></script>
 <script src="assets/vendor/page-flip.js"></script>
 <script>
-  /* ============================================================================
-     TEMPORARY DEBUG OVERLAY — mobile rotation bug diagnosis. Delete this whole
-     block (everything down to the matching "END TEMPORARY DEBUG OVERLAY" below)
-     to remove it entirely; every other call site just calls debugLog(...),
-     which is a harmless no-op whenever DEBUG_MOBILE_ROTATION is false.
-     ============================================================================ */
-  const DEBUG_MOBILE_ROTATION = true;
-  let debugLog = () => {};
-  if (DEBUG_MOBILE_ROTATION) {
-    const debugPanel = document.createElement('div');
-    debugPanel.id = 'debug-panel';
-    Object.assign(debugPanel.style, {
-      position: 'fixed', top: '0', left: '0', zIndex: '999999',
-      maxWidth: '100vw', maxHeight: '40vh', overflowY: 'auto', boxSizing: 'border-box',
-      background: 'rgba(0,0,0,0.75)', color: '#0f0',
-      font: '10px/1.4 monospace', padding: '6px 8px',
-      whiteSpace: 'pre-wrap', wordBreak: 'break-word', pointerEvents: 'none'
-    });
-    // appended to <html>, not <body> — stays on top regardless of any
-    // ancestor stacking context or overflow the reader/shelf might set up
-    document.documentElement.appendChild(debugPanel);
-
-    const DEBUG_MAX_LINES = 80;
-    const debugLines = [];
-    debugLog = (msg) => {
-      const t = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
-      debugLines.push(`[${t}] ${msg}`);
-      if (debugLines.length > DEBUG_MAX_LINES) debugLines.shift();
-      debugPanel.textContent = debugLines.join('\n');
-    };
-
-    window.addEventListener('error', (e) => {
-      debugLog(`window error: ${e.message}\n${(e.error && e.error.stack) || '(no stack)'}`);
-    });
-    window.addEventListener('unhandledrejection', (e) => {
-      const r = e.reason;
-      debugLog(`unhandled rejection: ${(r && r.message) || r}\n${(r && r.stack) || '(no stack)'}`);
-    });
-
-    // fires on every touch/click anywhere in the reader (capture phase, so it's
-    // seen even if something downstream stops propagation) — lets us tell
-    // "taps aren't registering at all" apart from "taps register but do nothing"
-    let debugTouchCount = 0, debugClickCount = 0;
-    const attachDebugTapListeners = () => {
-      const readerEl = document.getElementById('reader');
-      if (!readerEl) return;
-      readerEl.addEventListener('touchstart', (e) => {
-        debugTouchCount++;
-        debugLog(`touchstart #${debugTouchCount} target=${e.target.id || e.target.className || e.target.tagName}`);
-      }, { capture: true });
-      readerEl.addEventListener('click', (e) => {
-        debugClickCount++;
-        debugLog(`click #${debugClickCount} target=${e.target.id || e.target.className || e.target.tagName}`);
-      }, { capture: true });
-    };
-    if (document.getElementById('reader')) attachDebugTapListeners();
-    else document.addEventListener('DOMContentLoaded', attachDebugTapListeners);
-
-    debugLog('debug overlay initialized');
-  }
-  /* ============================== END TEMPORARY DEBUG OVERLAY ============================== */
-
   // header height varies with viewport width (the title wraps onto 2-3 lines on
   // narrow screens), so #toc's top offset is measured live rather than a fixed
   // px guess that only matched a single-line title
@@ -864,30 +802,7 @@
   let currentLeaves = null; // this book's already-rendered leaf images (openReader), reused to rebuild pageFlipInstance on rotation without re-rendering the PDF
   let currentAspect = null; // this book's leafHeight/leafWidth (openReader), needed to reconstruct the same PageFlip sizing on rebuild
   function updateReaderRotateClass(){
-    // DEBUG: everything the toggle decision depends on, read ONCE and reused
-    // (not re-read after) so the log reflects exactly what the toggle itself
-    // used — isDevicePortrait() in particular is the prime suspect: on some
-    // mobile browsers screen.orientation.type can still report the OLD
-    // orientation if read too early relative to the 'change' event, so this
-    // pins down whether it's already correct by the time we call it.
-    const debugStageEl = document.getElementById('reader-stage');
-    const debugBefore = debugStageEl ? `${debugStageEl.offsetWidth}x${debugStageEl.offsetHeight}` : '(no stage)';
-    const debugPortrait = isDevicePortrait();
-    const debugToggleTarget = IS_MOBILE_DEVICE && debugPortrait;
-    const debugClassBefore = document.body.classList.contains('mobile-reader-rotate');
-    debugLog(`updateReaderRotateClass: IS_MOBILE_DEVICE=${IS_MOBILE_DEVICE} isDevicePortrait()=${debugPortrait} toggleTarget=${debugToggleTarget} bodyHasClass(before)=${debugClassBefore}`);
-
-    document.body.classList.toggle('mobile-reader-rotate', debugToggleTarget);
-
-    // DEBUG: class membership + the CSS rule that actually applied (computed
-    // transform — a matrix when body.mobile-reader-rotate #reader-stage's
-    // rotate(90deg) is in effect, 'none' when it's the plain base rule),
-    // independent of the offsetWidth/Height reading, plus that reading itself
-    // so a stale (unchanged) size is still obvious.
-    const debugClassAfter = document.body.classList.contains('mobile-reader-rotate');
-    const debugTransform = debugStageEl ? getComputedStyle(debugStageEl).transform : '(no stage)';
-    const debugAfter = debugStageEl ? `${debugStageEl.offsetWidth}x${debugStageEl.offsetHeight}` : '(no stage)';
-    debugLog(`updateReaderRotateClass: bodyHasClass(after)=${debugClassAfter} computedTransform=${debugTransform} stage ${debugBefore} -> ${debugAfter}`);
+    document.body.classList.toggle('mobile-reader-rotate', IS_MOBILE_DEVICE && isDevicePortrait());
 
     // re-measure/reposition #reader-info if the reader's open — its layout math
     // (syncReaderMobileLayout) depends on whether the rotate class is active.
@@ -898,33 +813,25 @@
     if (readerOpen) syncReaderMobileLayout();
     // #reader-stage's own width/height (not just its transform) differ between
     // the two class states — see body.mobile-reader-rotate #reader-stage in
-    // the CSS — so this is normally a genuine reflow. But the two states CAN
-    // land on byte-identical offsetWidth/Height for a given viewport (proven
-    // via the debug log: 766x335 -> 766x335 on an actual rotation) — a plain
-    // pageFlip.update() just re-measures the container, so when the pixel
-    // size hasn't changed it re-measures nothing new and never rebuilds the
-    // canvas's internal touch-zone geometry, leaving hit-zones mapped to the
-    // pre-rotation coordinate space even though taps still reach the canvas.
-    // Rebuilding the instance from scratch forces that geometry to be
-    // recomputed from the DOM as it actually is now, regardless of whether
-    // the raw pixel dimensions happened to match. currentLeaves/currentAspect
-    // are the SAME already-rendered images from when the book was opened
-    // (openReader) — reused as-is here, so this never re-fetches or
-    // re-renders the PDF; turnToPage restores the spread the reader was
-    // already on. requestAnimationFrame waits for the browser to actually
-    // apply the new layout first — rebuilding synchronously here would still
-    // measure the pre-toggle layout.
-    if (readerOpen) requestAnimationFrame(() => {
-      if (!pageFlipInstance || !currentLeaves) { debugLog('pageFlip rebuild skipped: no pageFlipInstance/currentLeaves'); return; }
-      try {
-        const savedPageIndex = pageFlipInstance.getCurrentPageIndex();
-        createPageFlipInstance(currentLeaves, currentAspect);
-        pageFlipInstance.turnToPage(savedPageIndex);
-        updateControls();
-        debugLog(`pageFlip rebuilt after rotation, restored to page index ${savedPageIndex}, completed without throwing`);
-      } catch (err) {
-        debugLog(`pageFlip rebuild THREW: ${err && err.message}\n${(err && err.stack) || '(no stack)'}`);
-      }
+    // the CSS — but they can still land on a byte-identical pixel size for a
+    // given viewport across the rotation, so a plain pageFlip.update() (which
+    // only re-measures the container) can end up re-measuring nothing new and
+    // never rebuild the canvas's internal touch-zone geometry — leaving
+    // hit-zones mapped to the pre-rotation coordinate space even though taps
+    // still reach the canvas. Rebuilding the instance from scratch forces
+    // that geometry to be recomputed from the DOM as it actually is now,
+    // regardless of whether the raw pixel dimensions happened to match.
+    // currentLeaves/currentAspect are the SAME already-rendered images from
+    // when the book was opened (openReader) — reused as-is here, so this
+    // never re-fetches or re-renders the PDF; turnToPage restores the spread
+    // the reader was already on. requestAnimationFrame waits for the browser
+    // to actually apply the new layout first — rebuilding synchronously here
+    // would still measure the pre-toggle layout.
+    if (readerOpen && pageFlipInstance && currentLeaves) requestAnimationFrame(() => {
+      const savedPageIndex = pageFlipInstance.getCurrentPageIndex();
+      createPageFlipInstance(currentLeaves, currentAspect);
+      pageFlipInstance.turnToPage(savedPageIndex);
+      updateControls();
     });
   }
   // screen.orientation's 'change' event (or its matchMedia fallback) can still
@@ -1470,10 +1377,6 @@
       readerInfo.style.top = '';
       readerInfo.style.right = '';
       readerInfo.style.bottom = '';
-      // DEBUG: this function never touches #reader-stage's own width/height —
-      // only #reader-info's position — so this line is about #reader-info,
-      // not the stage size reported in updateReaderRotateClass's own log.
-      debugLog('syncReaderMobileLayout: not rotated, cleared #reader-info inline position');
       return;
     }
     // #reader-info's own CSS top/left (top:calc(100% - 20px); left:24px) only
@@ -1492,15 +1395,10 @@
     // INFO" button (see renderReaderInfo) or the full info block.
     const rightClearance = 24, topClearance = 96;
     const w = readerInfo.offsetWidth, h = readerInfo.offsetHeight;
-    const left = (window.innerWidth - rightClearance - h - w) + 'px';
-    const top = (topClearance - h + w) + 'px';
-    readerInfo.style.left = left;
-    readerInfo.style.top = top;
+    readerInfo.style.left = (window.innerWidth - rightClearance - h - w) + 'px';
+    readerInfo.style.top = (topClearance - h + w) + 'px';
     readerInfo.style.right = 'auto';
     readerInfo.style.bottom = 'auto';
-    // DEBUG: #reader-info's own intended size/position, not #reader-stage's —
-    // confirms this ran (vs. returning early above) and what it computed.
-    debugLog(`syncReaderMobileLayout: applied #reader-info left=${left} top=${top} (measured w=${w} h=${h}, innerWidth=${window.innerWidth})`);
   }
 
   // Mobile-only: most books haven't been individually checked against their
