@@ -272,7 +272,18 @@
     padding:24px; min-height:0;
   }
   #reader-stage{
-    position:relative; perspective:2000px; width:100%; height:100%; max-height:78vh;
+    position:relative; perspective:2000px; width:100%; height:100%;
+    /* St.PageFlip draws the whole book (including the curling page's fold
+       animation) onto a single canvas sized to EXACTLY the flat spread's
+       bounding box — it clamps the page height to whatever's available
+       (calculateBoundsRect in the vendor lib) with no margin reserved for a
+       curling page's natural lift beyond the flat rectangle's edges, so at
+       78vh the book filled the box with zero vertical slack and the curl
+       got clipped flush against the canvas's own top/bottom edges. 70vh
+       leaves genuine headroom above and below (split evenly by this flex
+       box's own centering) for that lift to draw into instead — a visual
+       tuning value, not an exact measurement of the curl's real extent. */
+    max-height:70vh;
     display:flex; align-items:center; justify-content:center;
   }
   #page-flip-book{ width:100%; height:100%; }
@@ -361,23 +372,25 @@
        landscape falls through to the plain (unrotated) #reader-stage rule
        above instead of getting rotated a second time on top of that. */
     body.mobile-reader-rotate #reader-stage{
-      /* width becomes the rotated box's HEIGHT — a fixed 90px clearance top and
-         bottom for the (unrotated, real) info bar up top and button row below,
-         which live outside the stage and don't grow/shrink along with it.
-         #reader-info itself is left to overlap the book (z-index:5, above the
-         stage's z-index:3 tap zones) rather than reserving extra room for it —
-         a book with a long referente list used to keep shrinking this box to
-         make space underneath, and shrunk narrow enough it could trip
-         St.PageFlip's own single→double page fallback; usePortrait:false
-         (set on the PageFlip instance in JS) now hard-disables that fallback,
-         but a badly-shrunk box would still just cramp the two-page spread it's
-         forced to keep, so removing the shrink entirely is the real fix. */
-      width:calc(100vh - 180px);
+      /* width becomes the rotated box's HEIGHT — a fixed clearance top and
+         bottom for the (unrotated, real) info bar up top and button row
+         below, which live outside the stage and don't grow/shrink along
+         with it, PLUS extra beyond that (see below) so St.PageFlip's book
+         doesn't fill this box with zero vertical slack — same reasoning as
+         #reader-stage's own max-height above: it draws the curling page's
+         fold animation onto a canvas sized to exactly the flat spread's
+         bounds, with no margin for the curl's natural lift past the flat
+         rectangle's edges, so a snugly-fit box clips that lift flush against
+         the canvas's top/bottom (this box's rotated left/right). Also why
+         usePortrait:false (set on the PageFlip instance in JS) hard-disables
+         St.PageFlip's own single→double page fallback rather than leaving
+         this box to shrink down far enough to trigger it on its own. */
+      width:calc(100vh - 220px);
       height:calc(100vw - 64px); max-height:none;
       flex-shrink:0;
-      /* top/bottom clearance is a fixed, equal 90px now (see above), so
-         #reader-stage-wrap's centering already splits it evenly — no
-         re-biasing translateY needed any more. */
+      /* top/bottom clearance is a single fixed value split evenly by
+         #reader-stage-wrap's own centering (not a separate top vs. bottom
+         amount), so no re-biasing translateY is needed here. */
       transform: rotate(90deg);
     }
 
