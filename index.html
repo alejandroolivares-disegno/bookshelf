@@ -1493,6 +1493,24 @@
     updateControls();
   }
 
+  // .book-marker's entrance animation (marker-line-grow/marker-dot-grow, see
+  // the CSS) only ever plays once, the moment each marker is first created —
+  // CSS animations don't replay on their own. Removing the class, forcing a
+  // reflow (reading offsetWidth), then re-adding it restarts both it and its
+  // ::after dot's animation together, since they're both keyed off this one
+  // class rather than something toggled separately; any inline styles a
+  // tilted/offset book's marker carries (markerOffset/markerHeight) live
+  // outside the class and are untouched by this. Reduced-motion users still
+  // get no animation either way, since @media(prefers-reduced-motion) already
+  // forces animation:none !important on both regardless of class state.
+  function replayBookMarkers(){
+    document.querySelectorAll('.book-marker').forEach(marker => {
+      marker.classList.remove('book-marker');
+      void marker.offsetWidth;
+      marker.classList.add('book-marker');
+    });
+  }
+
   function closeReader(){
     reader.classList.remove('open');
     pdfDoc = null;
@@ -1502,6 +1520,7 @@
     // clickable, covering the full viewport (#reader is position:fixed; inset:0)
     // and silently eating every click meant for the shelf underneath.
     pageFlipBook.style.visibility = 'hidden';
+    replayBookMarkers();
   }
 
   document.getElementById('reader-close').addEventListener('click', closeReader);
