@@ -342,7 +342,7 @@
     #referente-columns .toc-list{ flex-shrink:0; }
 
     /* the PDF spread is landscape-shaped; a portrait phone gives it almost no
-       usable width to stretch into. Rotating it -90deg lets it use the phone's
+       usable width to stretch into. Rotating it 90deg lets it use the phone's
        full HEIGHT as its effective width instead — so the box is sized with
        width/height swapped (pre-rotation) and then rotated to fill the portrait
        screen. transform-origin stays centered (the default) since #reader-stage
@@ -351,8 +351,16 @@
        without it the pre-rotation width (deliberately larger than the wrap's
        own content box, since it's meant to become the rotated box's height)
        gets silently squeezed back down to fit, same as the flex-shrink bug hit
-       earlier with #toc's own panels. */
-    #reader-stage{
+       earlier with #toc's own panels.
+
+       This whole swapped-box+rotate treatment only makes sense while the phone
+       is actually held in portrait — gated on body.mobile-reader-rotate (kept
+       in sync with the device's real, live orientation via the Screen
+       Orientation API, see updateReaderRotateClass in JS below) rather than on
+       the max-width:600px media query alone, so a phone already turned to
+       landscape falls through to the plain (unrotated) #reader-stage rule
+       above instead of getting rotated a second time on top of that. */
+    body.mobile-reader-rotate #reader-stage{
       /* width becomes the rotated box's HEIGHT — shrunk well below 100vh so the
          book clears the (unrotated, real) info bar up top and button row below,
          which live outside the stage and don't grow/shrink along with it.
@@ -370,8 +378,10 @@
          swaps which edge is which, but a plain screen-space translateY *after*
          the rotate (transform functions apply right-to-left, so this one runs
          in the parent's normal, unrotated coordinate space) shifts the already-
-         rotated result by a plain vertical pixel amount, sidestepping that. */
-      transform: translateY(calc((90px - var(--reader-bottom-clearance, 90px)) / 2)) rotate(-90deg);
+         rotated result by a plain vertical pixel amount, sidestepping that —
+         this bias is purely about top/bottom clearance and doesn't depend on
+         which way the rotate spins, so it's unchanged from before. */
+      transform: translateY(calc((90px - var(--reader-bottom-clearance, 90px)) / 2)) rotate(90deg);
     }
 
     /* large, invisible tap targets covering the top/bottom half of the whole
@@ -387,8 +397,9 @@
     #reader-tap-prev{ top:50%; bottom:0; }
 
     /* subtle "you can tap here" hints — the same ‹/› glyphs the old prev/next
-       buttons used, rotated -90deg along with everything else in the rotated
-       reading experience: › becomes an upward arrow (top = next/forward),
+       buttons used, rotated 90deg along with everything else in the rotated
+       reading experience (only while body.mobile-reader-rotate is active — see
+       #reader-stage above): › becomes an upward arrow (top = next/forward),
        ‹ becomes a downward arrow (bottom = previous/back). Fixed distances from
        the screen edges (not the PDF stage, whose size varies per book's aspect
        ratio) so they land consistently just past the close button/info bar;
@@ -397,14 +408,17 @@
       display:flex; justify-content:center; position:absolute; left:0; right:0; z-index:2;
       pointer-events:none; color:#999; font-size:20px; line-height:1;
     }
-    #reader-nav-hint-next{ top:64px; transform:rotate(-90deg); }
+    #reader-nav-hint-next{ top:64px; }
     /* sits just above #reader-info, whatever its current (variable) height is */
-    #reader-nav-hint-prev{ bottom:calc(var(--reader-info-height, 44px) + 20px); transform:rotate(-90deg); }
+    #reader-nav-hint-prev{ bottom:calc(var(--reader-info-height, 44px) + 20px); }
+    body.mobile-reader-rotate #reader-nav-hint-next{ transform:rotate(90deg); }
+    body.mobile-reader-rotate #reader-nav-hint-prev{ transform:rotate(90deg); }
 
     /* close moves to the top-left now that #reader-info has taken over the
        top-right/top-left info-bar spot's old job — see #reader-info below */
     #reader-close{ left:24px; right:auto; }
-    /* both layouts rotate the whole block -90deg to match the book — which
+    /* both layouts rotate the whole block 90deg to match the book (only while
+       body.mobile-reader-rotate is active — see #reader-stage above) — which
        pre-rotation flex-direction is used determines the post-rotation
        arrangement: column (groups stacked pre-rotation) becomes a horizontal
        strip once rotated (default/"bottom" layout, for books with more
@@ -427,19 +441,14 @@
          others) when they're not. flex-start aligns every group's own left
          edge instead, independent of how wide any group's content is. */
       flex-direction:column; justify-content:center; align-items:flex-start; gap:16px;
-      transform:rotate(-90deg);
     }
+    body.mobile-reader-rotate #reader-info{ transform:rotate(90deg); }
     #reader-info.reader-info-side{
-      /* transform-origin:top left means THIS element's pre-rotation top-left
-         corner is the one point that stays fixed through the rotation, and it
-         becomes the rotated box's visual BOTTOM-left corner (rotating -90deg
-         swings width downward-left... precisely, everything else swings around
-         this fixed point) — so positioning that corner directly via top/left
-         (not bottom, which would depend on this book's own content height, since
-         #reader-info's box height varies with how many referentes are listed)
-         reliably anchors the visual result at (left, 100%-20px) regardless of
-         its size. calc(100% - 20px) resolves against #reader's own height
-         (it's the containing block, and #reader is inset:0 = the viewport). */
+      /* top:calc(100% - 20px); left:24px below assumes the rotated anchor case
+         (see transform-origin note on the body.mobile-reader-rotate rule) —
+         harmless when unrotated too, since #reader-info's own JS-driven
+         top/left (syncReaderMobileLayout, gated the same way) overrides it
+         whenever it actually applies. */
       top:calc(100% - 20px); bottom:auto; left:24px;
       /* align-items is the pre-rotation row's CROSS axis (vertical) — it's what
          determines the LEFT-margin alignment post-rotation, since rotating swaps
@@ -451,7 +460,21 @@
          all three groups' pre-rotation TOP edges instead, which is the side that
          maps to the shared left margin, regardless of each group's own height. */
       flex-direction:row; align-items:flex-start;
-      transform-origin:top left; transform:rotate(-90deg);
+    }
+    /* transform-origin:bottom right means THIS element's pre-rotation
+       bottom-right corner is the one point that stays fixed through the
+       rotation, and it becomes the rotated box's visual BOTTOM-left corner
+       (rotating 90deg swings width downward-left... precisely, everything else
+       swings around this fixed point) — so positioning that corner directly
+       via top/left (not bottom, which would depend on this book's own content
+       height, since #reader-info's box height varies with how many referentes
+       are listed) reliably anchors the visual result at (left, 100%-20px)
+       regardless of its size. (Was transform-origin:top left + rotate(-90deg)
+       before the rotation direction was corrected — flipping the rotate's sign
+       alone would have swung this corner to top-right instead, so the origin
+       corner flips too, to keep landing on the same bottom-left spot.) */
+    body.mobile-reader-rotate #reader-info.reader-info-side{
+      transform-origin:bottom right; transform:rotate(90deg);
     }
   }
 </style>
@@ -739,6 +762,37 @@
   const STUDENT_TOC_COLUMNS_MOBILE = 2;
   const mobileMql = window.matchMedia('(max-width:600px)');
   function studentColumnCount(){ return mobileMql.matches ? STUDENT_TOC_COLUMNS_MOBILE : STUDENT_TOC_COLUMNS_DESKTOP; }
+
+  /* ---------------- mobile reader rotation (real device orientation) ---------------- */
+  // The mobile reader's rotate-90deg trick (see #reader-stage / body.mobile-reader-rotate
+  // in the CSS) is only correct while the phone is actually held in portrait — mobileMql
+  // (viewport WIDTH) alone can't tell portrait from landscape reliably, so turning the
+  // phone sideways while it stayed active would rotate an already-native-landscape layout
+  // a second time. screen.orientation.type reflects the device's real, live orientation;
+  // matchMedia('(orientation: portrait)') is the fallback for browsers without the Screen
+  // Orientation API (notably Safari). body.mobile-reader-rotate is the single class every
+  // rotation-dependent CSS rule keys off, so this is the only place that decides it.
+  const portraitMql = window.matchMedia('(orientation: portrait)');
+  function isDevicePortrait(){
+    if (screen.orientation && screen.orientation.type) return screen.orientation.type.startsWith('portrait');
+    return portraitMql.matches;
+  }
+  function updateReaderRotateClass(){
+    document.body.classList.toggle('mobile-reader-rotate', mobileMql.matches && isDevicePortrait());
+    // re-measure/reposition #reader-info if the reader's open — its layout math
+    // (syncReaderMobileLayout) depends on whether the rotate class is active.
+    // Looked up fresh (not the `reader` const declared further down the script)
+    // since this runs immediately at load time, before that const initializes.
+    const readerEl = document.getElementById('reader');
+    if (readerEl && readerEl.classList.contains('open')) syncReaderMobileLayout();
+  }
+  if (screen.orientation && screen.orientation.addEventListener){
+    screen.orientation.addEventListener('change', updateReaderRotateClass);
+  } else {
+    portraitMql.addEventListener('change', updateReaderRotateClass);
+  }
+  mobileMql.addEventListener('change', updateReaderRotateClass);
+  updateReaderRotateClass();
   const REFERENTE_COLUMN_SIZE_DESKTOP = 9;
   const REFERENTE_COLUMN_SIZE_MOBILE = 12;
   function referenteColumnSize(){ return mobileMql.matches ? REFERENTE_COLUMN_SIZE_MOBILE : REFERENTE_COLUMN_SIZE_DESKTOP; }
@@ -1254,7 +1308,19 @@
   // current height, rather than a fixed guess that a book with even more
   // referentes than today's tallest could still collide with.
   function syncReaderMobileLayout(){
-    if (!mobileMql.matches) return;
+    // Keyed off the real-orientation rotate class (see updateReaderRotateClass),
+    // not mobileMql alone — this math assumes #reader-info is actually rotated,
+    // which is no longer true once the phone's physically turned to landscape.
+    if (!document.body.classList.contains('mobile-reader-rotate')) {
+      // clear any inline positioning a previous rotated state left behind, so
+      // #reader-info falls back to its plain (unrotated) CSS layout instead of
+      // stale rotated-math coordinates.
+      readerInfo.style.left = '';
+      readerInfo.style.top = '';
+      readerInfo.style.right = '';
+      readerInfo.style.bottom = '';
+      return;
+    }
     // "side" layout books don't have #reader-info sitting at the bottom at all —
     // its rotated, row-turned-vertical shape there is unrelated to bottom
     // clearance, and using its height anyway was badly over-shrinking the
@@ -1278,7 +1344,7 @@
 
     // Precisely centers + bottom-anchors the rotated block regardless of this
     // book's own content height (varies with referente count, same as above).
-    // CSS alone can't reliably do this: rotating -90deg around the default
+    // CSS alone can't reliably do this: rotating 90deg around the default
     // (center) origin keeps that center fixed, but centering the box via
     // left:50%+translateX(-50%) uses its PRE-rotation width for the -50%
     // shift, while the VISUAL (post-rotation) width is actually its pre-
