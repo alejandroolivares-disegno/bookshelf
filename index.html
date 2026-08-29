@@ -883,13 +883,34 @@
       }
     });
   }
-  if (screen.orientation && screen.orientation.addEventListener){
-    screen.orientation.addEventListener('change', updateReaderRotateClass);
-  } else {
-    portraitMql.addEventListener('change', updateReaderRotateClass);
+  // screen.orientation's 'change' (or its matchMedia fallback) and mobileMql's
+  // own 'change' are two independent signals that both want to re-run
+  // updateReaderRotateClass, but they don't fire in lockstep: a physical
+  // rotation flips screen.orientation.type immediately, while the viewport's
+  // actual CSS width (and so mobileMql.matches) only catches up a beat later
+  // — observed ~150ms, once the browser finishes recomputing layout metrics
+  // like the address bar's on-screen height. Calling updateReaderRotateClass
+  // straight from each signal meant it sometimes ran with the new orientation
+  // but a stale mobileMql.matches (or vice versa), applying — then
+  // immediately re-applying — an inconsistent intermediate state, and calling
+  // pageFlip.update() twice for one physical rotation (visible in the debug
+  // log as two back-to-back firings with two different resulting stage
+  // sizes). Debouncing collapses however many of these fire in a burst into
+  // one call, made only after 150ms of quiet — by which point both signals
+  // have settled, so updateReaderRotateClass reads them together in a single
+  // pass, applies the class once, and only then calls pageFlip.update() once.
+  let readerRotateDebounceTimer = null;
+  function scheduleReaderRotateUpdate(){
+    clearTimeout(readerRotateDebounceTimer);
+    readerRotateDebounceTimer = setTimeout(updateReaderRotateClass, 150);
   }
-  mobileMql.addEventListener('change', updateReaderRotateClass);
-  updateReaderRotateClass();
+  if (screen.orientation && screen.orientation.addEventListener){
+    screen.orientation.addEventListener('change', scheduleReaderRotateUpdate);
+  } else {
+    portraitMql.addEventListener('change', scheduleReaderRotateUpdate);
+  }
+  mobileMql.addEventListener('change', scheduleReaderRotateUpdate);
+  updateReaderRotateClass(); // initial, synchronous — nothing to debounce yet
   const REFERENTE_COLUMN_SIZE_DESKTOP = 9;
   const REFERENTE_COLUMN_SIZE_MOBILE = 12;
   function referenteColumnSize(){ return mobileMql.matches ? REFERENTE_COLUMN_SIZE_MOBILE : REFERENTE_COLUMN_SIZE_DESKTOP; }
