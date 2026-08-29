@@ -862,16 +862,30 @@
   // load time, before the script would otherwise reach that later `let`.
   let pageFlipInstance = null; // one St.PageFlip instance per open book
   function updateReaderRotateClass(){
-    // DEBUG: container size + detected orientation, before the class toggle
+    // DEBUG: everything the toggle decision depends on, read ONCE and reused
+    // (not re-read after) so the log reflects exactly what the toggle itself
+    // used — isDevicePortrait() in particular is the prime suspect: on some
+    // mobile browsers screen.orientation.type can still report the OLD
+    // orientation if read too early relative to the 'change' event, so this
+    // pins down whether it's already correct by the time we call it.
     const debugStageEl = document.getElementById('reader-stage');
     const debugBefore = debugStageEl ? `${debugStageEl.offsetWidth}x${debugStageEl.offsetHeight}` : '(no stage)';
-    const debugOrientation = isDevicePortrait() ? 'portrait' : 'landscape';
+    const debugPortrait = isDevicePortrait();
+    const debugToggleTarget = IS_MOBILE_DEVICE && debugPortrait;
+    const debugClassBefore = document.body.classList.contains('mobile-reader-rotate');
+    debugLog(`updateReaderRotateClass: IS_MOBILE_DEVICE=${IS_MOBILE_DEVICE} isDevicePortrait()=${debugPortrait} toggleTarget=${debugToggleTarget} bodyHasClass(before)=${debugClassBefore}`);
 
-    document.body.classList.toggle('mobile-reader-rotate', IS_MOBILE_DEVICE && isDevicePortrait());
+    document.body.classList.toggle('mobile-reader-rotate', debugToggleTarget);
 
-    // DEBUG: container size after the toggle, so a stale (unchanged) size is obvious
+    // DEBUG: class membership + the CSS rule that actually applied (computed
+    // transform — a matrix when body.mobile-reader-rotate #reader-stage's
+    // rotate(90deg) is in effect, 'none' when it's the plain base rule),
+    // independent of the offsetWidth/Height reading, plus that reading itself
+    // so a stale (unchanged) size is still obvious.
+    const debugClassAfter = document.body.classList.contains('mobile-reader-rotate');
+    const debugTransform = debugStageEl ? getComputedStyle(debugStageEl).transform : '(no stage)';
     const debugAfter = debugStageEl ? `${debugStageEl.offsetWidth}x${debugStageEl.offsetHeight}` : '(no stage)';
-    debugLog(`orientation=${debugOrientation} mobileDevice=${IS_MOBILE_DEVICE} stage ${debugBefore} -> ${debugAfter}`);
+    debugLog(`updateReaderRotateClass: bodyHasClass(after)=${debugClassAfter} computedTransform=${debugTransform} stage ${debugBefore} -> ${debugAfter}`);
 
     // re-measure/reposition #reader-info if the reader's open — its layout math
     // (syncReaderMobileLayout) depends on whether the rotate class is active.
@@ -1442,6 +1456,10 @@
       readerInfo.style.top = '';
       readerInfo.style.right = '';
       readerInfo.style.bottom = '';
+      // DEBUG: this function never touches #reader-stage's own width/height —
+      // only #reader-info's position — so this line is about #reader-info,
+      // not the stage size reported in updateReaderRotateClass's own log.
+      debugLog('syncReaderMobileLayout: not rotated, cleared #reader-info inline position');
       return;
     }
     // #reader-info's own CSS top/left (top:calc(100% - 20px); left:24px) only
@@ -1460,10 +1478,15 @@
     // INFO" button (see renderReaderInfo) or the full info block.
     const rightClearance = 24, topClearance = 96;
     const w = readerInfo.offsetWidth, h = readerInfo.offsetHeight;
-    readerInfo.style.left = (window.innerWidth - rightClearance - h - w) + 'px';
-    readerInfo.style.top = (topClearance - h + w) + 'px';
+    const left = (window.innerWidth - rightClearance - h - w) + 'px';
+    const top = (topClearance - h + w) + 'px';
+    readerInfo.style.left = left;
+    readerInfo.style.top = top;
     readerInfo.style.right = 'auto';
     readerInfo.style.bottom = 'auto';
+    // DEBUG: #reader-info's own intended size/position, not #reader-stage's —
+    // confirms this ran (vs. returning early above) and what it computed.
+    debugLog(`syncReaderMobileLayout: applied #reader-info left=${left} top=${top} (measured w=${w} h=${h}, innerWidth=${window.innerWidth})`);
   }
 
   // Mobile-only: most books haven't been individually checked against their
