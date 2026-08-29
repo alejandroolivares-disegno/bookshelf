@@ -58,6 +58,14 @@
   .header-title{font-family:'RNS Physis', var(--sans); font-weight:700; font-size:18px; letter-spacing:-0.02em;}
   .header-count{font-family:'Martian Mono', var(--mono); font-weight:200; font-size:8px; color:var(--muted); letter-spacing:0.06em; text-transform:uppercase;}
   .header-count-wrap{ display:flex; flex-direction:column; align-items:flex-end; gap:5px; }
+  /* desktop keeps the count next to the title (.header-count-wrap above) — this
+     mobile-only duplicate (same #book-count text, kept in sync in JS) sits in
+     #shelf instead, right above .header-legend, so the two read together as a
+     pair near the actual shelf rather than the count being stranded up in the
+     header while the shelf itself sits much further down the page (see
+     .header-legend's own position comment). Hidden here by default; shown
+     (and the original hidden) only in the mobile media query below. */
+  .header-count-shelf{ display:none; }
   .header-legend{
     font-family:'Martian Mono', var(--mono); font-weight:300; font-size:8.3px; color:#c0392b;
     letter-spacing:0.02em; line-height:1.3; text-align:left; text-transform:uppercase;
@@ -68,7 +76,9 @@
        translateY(-100%) bottom-anchors it at that point regardless of its own
        rendered height (it can wrap to 2 lines depending on width). left:40px
        matches the header title/toggle menu's own left edge, not #shelf's own
-       46px content padding (which would sit 6px further right, misaligned). */
+       46px content padding (which would sit 6px further right, misaligned).
+       Mobile overrides all of this back to a plain in-flow position — see
+       the mobile media query below. */
     position:absolute; left:40px; top:63px; transform:translateY(-100%);
   }
   /* desktop only — with both the estudiante and referente name lists open at
@@ -352,6 +362,27 @@
        just letting the (already-enabled) horizontal scroll reach the overflow */
     #referente-columns .toc-list{ flex-shrink:0; }
 
+    /* the count sitting up in the header (baseline-aligned with a title that
+       can itself wrap onto 2 lines here) reads oddly disconnected from the
+       shelf it's counting, which can sit much further down the page — swap
+       to the #shelf-anchored duplicate instead (.header-count-shelf, kept in
+       sync in JS), positioned right above .header-legend. */
+    .header-count-wrap{ display:none; }
+    .header-count-shelf{ display:block; margin-bottom:6px; }
+    /* .header-legend's desktop position:absolute (see its base rule) anchors
+       it a fixed distance below #shelf's own top edge — reasonable on
+       desktop, where #shelf's top and the row's top stay close together, but
+       fragile here: on top of stacking a second line above it now, the actual
+       gap between #shelf's top and the row can vary a lot more on mobile
+       (#toc is in normal flow above #shelf here, not a fixed overlay, so how
+       much space it and its open panels consume shifts #shelf's own rendered
+       height around). Reverting to normal in-flow positioning sidesteps both
+       problems at once: .header-count-shelf and .header-legend simply stack
+       in the order they're already written in the DOM (see #shelf's markup),
+       directly above whichever row happens to be #shelf's next child,
+       whatever #shelf's own current height is. */
+    .header-legend{ position:static; left:auto; top:auto; transform:none; margin-bottom:12px; }
+
     /* the PDF spread is landscape-shaped; a portrait phone gives it almost no
        usable width to stretch into. Rotating it 90deg lets it use the phone's
        full HEIGHT as its effective width instead — so the box is sized with
@@ -483,6 +514,7 @@
 </nav>
 
 <main id="shelf">
+  <div class="header-count header-count-shelf" id="book-count-shelf"></div>
   <div class="header-legend">Los proyectos destacados han sido marcados.</div>
 </main>
 
@@ -709,7 +741,11 @@
   const shelf = document.getElementById('shelf');
   // last 3 books (ids 33-35, still placeholders) hidden from the shelf for now — still in BOOKS, just not rendered
   const VISIBLE_BOOKS = BOOKS.slice(0, -3);
-  document.getElementById('book-count').textContent = `${VISIBLE_BOOKS.length} libros.`;
+  // #book-count-shelf is the mobile-only duplicate positioned near #shelf
+  // itself (see .header-count-shelf in the CSS) — kept in sync here too
+  const bookCountText = `${VISIBLE_BOOKS.length} libros.`;
+  document.getElementById('book-count').textContent = bookCountText;
+  document.getElementById('book-count-shelf').textContent = bookCountText;
 
   /* ---------------- table of contents ---------------- */
   // ids are split into a fixed number of columns in shelf order (column size grows/
