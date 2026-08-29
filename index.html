@@ -550,6 +550,68 @@
 <script src="assets/vendor/pdf.min.js"></script>
 <script src="assets/vendor/page-flip.js"></script>
 <script>
+  /* ============================================================================
+     TEMPORARY DEBUG OVERLAY — mobile rotation bug diagnosis. Delete this whole
+     block (everything down to the matching "END TEMPORARY DEBUG OVERLAY" below)
+     to remove it entirely; every other call site just calls debugLog(...),
+     which is a harmless no-op whenever DEBUG_MOBILE_ROTATION is false.
+     ============================================================================ */
+  const DEBUG_MOBILE_ROTATION = true;
+  let debugLog = () => {};
+  if (DEBUG_MOBILE_ROTATION) {
+    const debugPanel = document.createElement('div');
+    debugPanel.id = 'debug-panel';
+    Object.assign(debugPanel.style, {
+      position: 'fixed', top: '0', left: '0', zIndex: '999999',
+      maxWidth: '100vw', maxHeight: '40vh', overflowY: 'auto', boxSizing: 'border-box',
+      background: 'rgba(0,0,0,0.75)', color: '#0f0',
+      font: '10px/1.4 monospace', padding: '6px 8px',
+      whiteSpace: 'pre-wrap', wordBreak: 'break-word', pointerEvents: 'none'
+    });
+    // appended to <html>, not <body> — stays on top regardless of any
+    // ancestor stacking context or overflow the reader/shelf might set up
+    document.documentElement.appendChild(debugPanel);
+
+    const DEBUG_MAX_LINES = 80;
+    const debugLines = [];
+    debugLog = (msg) => {
+      const t = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
+      debugLines.push(`[${t}] ${msg}`);
+      if (debugLines.length > DEBUG_MAX_LINES) debugLines.shift();
+      debugPanel.textContent = debugLines.join('\n');
+    };
+
+    window.addEventListener('error', (e) => {
+      debugLog(`window error: ${e.message}\n${(e.error && e.error.stack) || '(no stack)'}`);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      const r = e.reason;
+      debugLog(`unhandled rejection: ${(r && r.message) || r}\n${(r && r.stack) || '(no stack)'}`);
+    });
+
+    // fires on every touch/click anywhere in the reader (capture phase, so it's
+    // seen even if something downstream stops propagation) — lets us tell
+    // "taps aren't registering at all" apart from "taps register but do nothing"
+    let debugTouchCount = 0, debugClickCount = 0;
+    const attachDebugTapListeners = () => {
+      const readerEl = document.getElementById('reader');
+      if (!readerEl) return;
+      readerEl.addEventListener('touchstart', (e) => {
+        debugTouchCount++;
+        debugLog(`touchstart #${debugTouchCount} target=${e.target.id || e.target.className || e.target.tagName}`);
+      }, { capture: true });
+      readerEl.addEventListener('click', (e) => {
+        debugClickCount++;
+        debugLog(`click #${debugClickCount} target=${e.target.id || e.target.className || e.target.tagName}`);
+      }, { capture: true });
+    };
+    if (document.getElementById('reader')) attachDebugTapListeners();
+    else document.addEventListener('DOMContentLoaded', attachDebugTapListeners);
+
+    debugLog('debug overlay initialized');
+  }
+  /* ============================== END TEMPORARY DEBUG OVERLAY ============================== */
+
   // header height varies with viewport width (the title wraps onto 2-3 lines on
   // narrow screens), so #toc's top offset is measured live rather than a fixed
   // px guess that only matched a single-line title
@@ -784,7 +846,17 @@
   // load time, before the script would otherwise reach that later `let`.
   let pageFlipInstance = null; // one St.PageFlip instance per open book
   function updateReaderRotateClass(){
+    // DEBUG: container size + detected orientation, before the class toggle
+    const debugStageEl = document.getElementById('reader-stage');
+    const debugBefore = debugStageEl ? `${debugStageEl.offsetWidth}x${debugStageEl.offsetHeight}` : '(no stage)';
+    const debugOrientation = isDevicePortrait() ? 'portrait' : 'landscape';
+
     document.body.classList.toggle('mobile-reader-rotate', mobileMql.matches && isDevicePortrait());
+
+    // DEBUG: container size after the toggle, so a stale (unchanged) size is obvious
+    const debugAfter = debugStageEl ? `${debugStageEl.offsetWidth}x${debugStageEl.offsetHeight}` : '(no stage)';
+    debugLog(`orientation=${debugOrientation} mobile=${mobileMql.matches} stage ${debugBefore} -> ${debugAfter}`);
+
     // re-measure/reposition #reader-info if the reader's open — its layout math
     // (syncReaderMobileLayout) depends on whether the rotate class is active.
     // Looked up fresh (not the `reader` const declared further down the script)
@@ -801,7 +873,15 @@
     // the moment the phone's physically turned. requestAnimationFrame waits
     // for the browser to actually apply the new layout first — calling
     // update() synchronously here would still read the pre-toggle dimensions.
-    if (readerOpen) requestAnimationFrame(() => { if (pageFlipInstance) pageFlipInstance.update(); });
+    if (readerOpen) requestAnimationFrame(() => {
+      if (!pageFlipInstance) { debugLog('pageFlip.update() skipped: no pageFlipInstance'); return; }
+      try {
+        pageFlipInstance.update();
+        debugLog('pageFlip.update() called, completed without throwing');
+      } catch (err) {
+        debugLog(`pageFlip.update() THREW: ${err && err.message}\n${(err && err.stack) || '(no stack)'}`);
+      }
+    });
   }
   if (screen.orientation && screen.orientation.addEventListener){
     screen.orientation.addEventListener('change', updateReaderRotateClass);
