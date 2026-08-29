@@ -632,6 +632,11 @@
   // never quite squared up — most books stay upright (0/omitted, via CSS's --tilt fallback)
   const TILT = { 6: 6, 10: -3, 20: -6, 29: -2 };
 
+  // these PDFs are large enough that they're hosted on R2 instead of shipped in
+  // assets/pdfs/ — everything else still resolves to the local assets/pdfs/<id>.pdf
+  const R2_BASE = 'https://pub-01436a5328d0420ca12990c380982e55.r2.dev';
+  const R2_PDFS = new Set(['02', '05', '06', '12', '20', '23', '24', '29', '31']);
+
   const BOOKS = [
     {
       id: '01',
@@ -665,7 +670,7 @@
         spine: `assets/spines/${idx}.png`,
         cover: `assets/covers/${idx}.png`,
         // the reader tries this real file first and falls back to sample.pdf on load failure
-        pdf: `assets/pdfs/${idx}.pdf`,
+        pdf: R2_PDFS.has(idx) ? `${R2_BASE}/${idx}.pdf` : `assets/pdfs/${idx}.pdf`,
         // slight variance so the shelf doesn't look uniform — tweak freely per book
         // a handful of extra-skinny and extra-wide volumes mixed into the normal spread
         spineWidth: n in REAL_SPINE_WIDTH ? REAL_SPINE_WIDTH[n]
