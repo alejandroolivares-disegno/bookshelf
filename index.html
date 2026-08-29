@@ -829,11 +829,17 @@
 
   /* ---------------- mobile reader rotation (real device orientation) ---------------- */
   // The mobile reader's rotate-90deg trick (see #reader-stage / body.mobile-reader-rotate
-  // in the CSS) is only correct while the phone is actually held in portrait — mobileMql
-  // (viewport WIDTH) alone can't tell portrait from landscape reliably, so turning the
-  // phone sideways while it stayed active would rotate an already-native-landscape layout
-  // a second time. screen.orientation.type reflects the device's real, live orientation;
-  // matchMedia('(orientation: portrait)') is the fallback for browsers without the Screen
+  // in the CSS) is only correct while the phone is actually held in portrait. It used to
+  // gate on mobileMql (viewport WIDTH) as its "is this a phone" check, but that's a LIVE
+  // value that changes mid-rotation — the viewport doesn't reflow to its new width/height
+  // until a beat after screen.orientation.type has already flipped, so mobileMql.matches
+  // could still reflect the OLD orientation's width at the exact moment the new
+  // orientation was read, computing mobile-reader-rotate from mismatched inputs. A
+  // device's size class doesn't actually change when it's turned sideways — only which of
+  // width/height is currently the CSS "width" does — so IS_MOBILE_DEVICE below is computed
+  // ONCE, from quantities that don't flip with orientation, instead of read live.
+  // screen.orientation.type reflects the device's real, live orientation; matchMedia
+  // ('(orientation: portrait)') is the fallback for browsers without the Screen
   // Orientation API (notably Safari). body.mobile-reader-rotate is the single class every
   // rotation-dependent CSS rule keys off, so this is the only place that decides it.
   const portraitMql = window.matchMedia('(orientation: portrait)');
@@ -841,6 +847,16 @@
     if (screen.orientation && screen.orientation.type) return screen.orientation.type.startsWith('portrait');
     return portraitMql.matches;
   }
+  // Math.min(innerWidth, innerHeight) is the device's short edge — a phone's portrait
+  // width, regardless of which orientation it's CURRENTLY in — so this reuses mobileMql's
+  // own breakpoint (600px) against a value that can't itself change during a rotation,
+  // the way mobileMql.matches could. pointer:coarse (true for touch-primary input, false
+  // on a mouse-driven desktop) is read once as a second, independent signal; either one
+  // being true counts as a mobile-class device. Deliberately NOT a matchMedia().matches
+  // read live elsewhere, nor kept as a MediaQueryList to listen on — a one-time constant,
+  // by design, so it can never itself be the thing that's out of sync mid-rotation.
+  const IS_MOBILE_DEVICE = Math.min(window.innerWidth, window.innerHeight) <= 600
+    || window.matchMedia('(pointer: coarse)').matches;
   // declared here (rather than down with the rest of the reader's state) so
   // updateReaderRotateClass can reference it below — it runs immediately at
   // load time, before the script would otherwise reach that later `let`.
@@ -851,11 +867,11 @@
     const debugBefore = debugStageEl ? `${debugStageEl.offsetWidth}x${debugStageEl.offsetHeight}` : '(no stage)';
     const debugOrientation = isDevicePortrait() ? 'portrait' : 'landscape';
 
-    document.body.classList.toggle('mobile-reader-rotate', mobileMql.matches && isDevicePortrait());
+    document.body.classList.toggle('mobile-reader-rotate', IS_MOBILE_DEVICE && isDevicePortrait());
 
     // DEBUG: container size after the toggle, so a stale (unchanged) size is obvious
     const debugAfter = debugStageEl ? `${debugStageEl.offsetWidth}x${debugStageEl.offsetHeight}` : '(no stage)';
-    debugLog(`orientation=${debugOrientation} mobile=${mobileMql.matches} stage ${debugBefore} -> ${debugAfter}`);
+    debugLog(`orientation=${debugOrientation} mobileDevice=${IS_MOBILE_DEVICE} stage ${debugBefore} -> ${debugAfter}`);
 
     // re-measure/reposition #reader-info if the reader's open — its layout math
     // (syncReaderMobileLayout) depends on whether the rotate class is active.
@@ -883,33 +899,27 @@
       }
     });
   }
-  // screen.orientation's 'change' (or its matchMedia fallback) and mobileMql's
-  // own 'change' are two independent signals that both want to re-run
-  // updateReaderRotateClass, but they don't fire in lockstep: a physical
-  // rotation flips screen.orientation.type immediately, while the viewport's
-  // actual CSS width (and so mobileMql.matches) only catches up a beat later
-  // — observed ~150ms, once the browser finishes recomputing layout metrics
-  // like the address bar's on-screen height. Calling updateReaderRotateClass
-  // straight from each signal meant it sometimes ran with the new orientation
-  // but a stale mobileMql.matches (or vice versa), applying — then
-  // immediately re-applying — an inconsistent intermediate state, and calling
-  // pageFlip.update() twice for one physical rotation (visible in the debug
-  // log as two back-to-back firings with two different resulting stage
-  // sizes). Debouncing collapses however many of these fire in a burst into
-  // one call, made only after 150ms of quiet — by which point both signals
-  // have settled, so updateReaderRotateClass reads them together in a single
-  // pass, applies the class once, and only then calls pageFlip.update() once.
+  // screen.orientation's 'change' event (or its matchMedia fallback) can still
+  // fire more than once in quick succession around a single physical
+  // rotation (some browsers report an intermediate angle before settling), so
+  // this still debounces down to one updateReaderRotateClass() run — 350ms,
+  // comfortably past the ~170ms gap observed between related events during a
+  // real rotation, so a burst from one physical turn reliably collapses into
+  // a single call instead of splitting across two debounce windows. mobileMql
+  // is deliberately NOT wired in here any more (see IS_MOBILE_DEVICE above) —
+  // it's a live value that could itself change mid-rotation, which was the
+  // actual root cause of the double-fire, not just a timing gap between two
+  // listeners.
   let readerRotateDebounceTimer = null;
   function scheduleReaderRotateUpdate(){
     clearTimeout(readerRotateDebounceTimer);
-    readerRotateDebounceTimer = setTimeout(updateReaderRotateClass, 150);
+    readerRotateDebounceTimer = setTimeout(updateReaderRotateClass, 350);
   }
   if (screen.orientation && screen.orientation.addEventListener){
     screen.orientation.addEventListener('change', scheduleReaderRotateUpdate);
   } else {
     portraitMql.addEventListener('change', scheduleReaderRotateUpdate);
   }
-  mobileMql.addEventListener('change', scheduleReaderRotateUpdate);
   updateReaderRotateClass(); // initial, synchronous — nothing to debounce yet
   const REFERENTE_COLUMN_SIZE_DESKTOP = 9;
   const REFERENTE_COLUMN_SIZE_MOBILE = 12;
